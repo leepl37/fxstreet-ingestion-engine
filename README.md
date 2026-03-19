@@ -43,10 +43,18 @@ To test the webhook Lambda locally without deploying to AWS:
      -d '{"eventDateId": "test-uuid"}'
    ```
 
+## Local Testing (Backfill CLI)
+
+To test the backfill CLI locally with a dry-run (fetches data from API but skips QuestDB insert):
+
+```bash
+cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10 --dry-run
+```
+
 ## Next Steps
 
 1. ~~Implement shared models and configuration in `crates/core`.~~ ✓
 2. ~~Implement QuestDB writer and table bootstrap logic.~~ ✓
 3. ~~Implement webhook Lambda flow in `crates/lambda`.~~ ✓
-4. Implement backfill CLI flow in `crates/cli`.
+4. ~~Implement backfill CLI flow in `crates/cli`.~~ ✓
 5. Implement Terraform infrastructure in `infra/terraform`.
