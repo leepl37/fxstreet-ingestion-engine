@@ -6,7 +6,7 @@ ingestion engine with AWS Lambda, QuestDB, and Terraform.
 ## Definition of Done (DoD)
 
 - [x] Core: event models (`FxEventRaw` / `EconomicEvent`) and API field mapping verified; `cargo test -p core` passes
-- [x] Webhook `POST` request is received and stored in QuestDB
+- [ ] Webhook `POST` request is received and stored in QuestDB
 - [ ] Backfill CLI stores historical events for a given date range
 - [ ] Full infrastructure is deployed with one `terraform apply`
 - [ ] Retry behavior and logs make failures diagnosable
