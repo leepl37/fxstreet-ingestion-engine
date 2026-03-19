@@ -1,6 +1,9 @@
 target/
 **/.DS_Store
 
+# Challenge instructions (local reference only)
+FXSTREET_NEWS_INGESTION_CHALLENGE.md
+
 # Local env files
 .env
 .env.*
