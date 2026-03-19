@@ -1,0 +1,7 @@
+aws_region           = "ap-northeast-2"
+project_name         = "fxstreet-ingestion"
+environment          = "dev"
+owner                = "your-name"
+webhook_secret_token = "my_super_secret_webhook_token_123!"
+ec2_instance_type    = "t3.micro"
+# ssh_key_name       = "my-macbook-key"
