@@ -16,6 +16,7 @@ struct AppState {
     db_writer: QuestDbWriter,
     expected_token: String,
     fxstreet_api_url: String,
+    http_client: reqwest::Client,
 }
 
 #[instrument(skip(state, req))]
@@ -58,7 +59,7 @@ async fn function_handler(req: Request, state: Arc<AppState>) -> Result<Response
 
     // 4. Fetch full event via FXStreet API (500 if DB/API error)
     let url = format!("{}/{}", state.fxstreet_api_url, event_date_id);
-    let api_res = match reqwest::get(&url).await {
+    let api_res = match state.http_client.get(&url).send().await {
         Ok(r) => r,
         Err(e) => {
             status_code = 500;
@@ -124,6 +125,7 @@ async fn main() -> Result<(), Error> {
         db_writer: writer,
         expected_token,
         fxstreet_api_url,
+        http_client: reqwest::Client::new(),
     });
 
     run(service_fn(move |req| {
