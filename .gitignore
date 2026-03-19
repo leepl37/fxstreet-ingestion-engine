@@ -1,5 +1,7 @@
-/target/
+target/
 **/.DS_Store
-**/*.tfstate
-**/*.tfstate.*
-.terraform/
+
+# Local env files
+.env
+.env.*
+
