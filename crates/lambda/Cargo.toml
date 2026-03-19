@@ -1,6 +1,14 @@
 [package]
 name = "lambda"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+orderx_core = { path = "../core", package = "core" }
+lambda_http = "0.8"
+tokio = { workspace = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }

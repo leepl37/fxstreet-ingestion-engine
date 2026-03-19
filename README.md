@@ -26,10 +26,27 @@ project-root/
    └─ terraform/
 ```
 
+## Local Testing (Webhook Lambda)
+
+To test the webhook Lambda locally without deploying to AWS:
+
+1. Install `cargo-lambda` (e.g., `brew tap cargo-lambda/cargo-lambda && brew install cargo-lambda`).
+2. Start the local emulator in the project root:
+   ```bash
+   WEBHOOK_SECRET_TOKEN="my-secret-key" cargo lambda watch
+   ```
+3. Send a test POST request in another terminal:
+   ```bash
+   curl -v -X POST http://127.0.0.1:9000/lambda-url/lambda \
+     -H "Content-Type: application/json" \
+     -H "X-Webhook-Token: my-secret-key" \
+     -d '{"eventDateId": "test-uuid"}'
+   ```
+
 ## Next Steps
 
 1. ~~Implement shared models and configuration in `crates/core`.~~ ✓
 2. ~~Implement QuestDB writer and table bootstrap logic.~~ ✓
-3. Implement webhook Lambda flow in `crates/lambda`.
+3. ~~Implement webhook Lambda flow in `crates/lambda`.~~ ✓
 4. Implement backfill CLI flow in `crates/cli`.
 5. Implement Terraform infrastructure in `infra/terraform`.
