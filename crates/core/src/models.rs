@@ -77,11 +77,9 @@ impl EconomicEvent {
     }
 }
 
-impl TryFrom<(FxEventRaw, EventSource)> for EconomicEvent {
-    type Error = std::convert::Infallible;
-
-    fn try_from((raw, source): (FxEventRaw, EventSource)) -> Result<Self, Self::Error> {
-        Ok(EconomicEvent::from_raw(raw, source))
+impl From<(FxEventRaw, EventSource)> for EconomicEvent {
+    fn from((raw, source): (FxEventRaw, EventSource)) -> Self {
+        EconomicEvent::from_raw(raw, source)
     }
 }
 
