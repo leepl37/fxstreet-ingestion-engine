@@ -7,6 +7,7 @@ pub enum CoreError {
     Http(reqwest::Error),
     Validation(String),
     Serialization(serde_json::Error),
+    ExternalApi(String),
 }
 
 impl fmt::Display for CoreError {
@@ -17,6 +18,7 @@ impl fmt::Display for CoreError {
             CoreError::Http(err) => write!(f, "HTTP client error: {}", err),
             CoreError::Validation(msg) => write!(f, "Validation error: {}", msg),
             CoreError::Serialization(err) => write!(f, "Serialization error: {}", err),
+            CoreError::ExternalApi(msg) => write!(f, "External API error: {}", msg),
         }
     }
 }

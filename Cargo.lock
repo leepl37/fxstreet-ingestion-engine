@@ -237,7 +237,6 @@ dependencies = [
  "chrono",
  "clap",
  "core",
- "reqwest",
  "serde",
  "serde_json",
  "tokio",
@@ -717,7 +716,6 @@ version = "0.1.0"
 dependencies = [
  "core",
  "lambda_http",
- "reqwest",
  "serde",
  "serde_json",
  "tokio",

@@ -1,6 +1,7 @@
 use lambda_http::{run, service_fn, Body, Error, Request, Response};
 use tracing::{info, error, instrument};
-use orderx_core::models::{EconomicEvent, EventSource, FxEventRaw};
+use orderx_core::fxstreet::{FxstreetClient, FxstreetMode};
+use orderx_core::models::{EconomicEvent, EventSource};
 use orderx_core::questdb::QuestDbWriter;
 use std::env;
 use std::sync::Arc;
@@ -15,8 +16,7 @@ pub struct WebhookPayload {
 struct AppState {
     db_writer: QuestDbWriter,
     expected_token: String,
-    fxstreet_api_url: String,
-    http_client: reqwest::Client,
+    fxstreet_client: FxstreetClient,
 }
 
 #[instrument(skip(state, req))]
@@ -58,28 +58,11 @@ async fn function_handler(req: Request, state: Arc<AppState>) -> Result<Response
     let event_date_id = payload.event_date_id;
 
     // 4. Fetch full event via FXStreet API (500 if DB/API error)
-    let url = format!("{}/{}", state.fxstreet_api_url, event_date_id);
-    let api_res = match state.http_client.get(&url).send().await {
-        Ok(r) => r,
+    let raw_event = match state.fxstreet_client.fetch_event_date_by_id(&event_date_id).await {
+        Ok(event) => event,
         Err(e) => {
             status_code = 500;
             error!(status = status_code, category = "api", event_id = %event_date_id, error = ?e, latency_ms = start.elapsed().as_millis(), "External FXStreet API HTTP request failure");
-            return Ok(Response::builder().status(status_code).body(Body::Text("Internal Server Error".into()))?);
-        }
-    };
-
-    if !api_res.status().is_success() {
-        status_code = 500;
-        let api_status = api_res.status().as_u16();
-        error!(status = status_code, api_status = api_status, category = "api", event_id = %event_date_id, latency_ms = start.elapsed().as_millis(), "FXStreet API returned non-200");
-        return Ok(Response::builder().status(status_code).body(Body::Text("Internal Server Error".into()))?);
-    }
-
-    let raw_event = match api_res.json::<FxEventRaw>().await {
-        Ok(e) => e,
-        Err(e) => {
-            status_code = 500;
-            error!(status = status_code, category = "api", event_id = %event_date_id, error = ?e, latency_ms = start.elapsed().as_millis(), "Failed to parse API response into FxEventRaw");
             return Ok(Response::builder().status(status_code).body(Body::Text("Internal Server Error".into()))?);
         }
     };
@@ -118,14 +101,17 @@ async fn main() -> Result<(), Error> {
     }
 
     let expected_token = env::var("WEBHOOK_SECRET_TOKEN").unwrap_or_default();
-    let fxstreet_api_url = env::var("FXSTREET_API_URL")
-        .unwrap_or_else(|_| "https://calendar-api.fxstreet.com/eventDates".to_string());
+    let fxstreet_client = FxstreetClient::from_env()
+        .expect("Failed to initialize FxstreetClient from environment");
+    info!(mode = ?fxstreet_client.mode(), "FXStreet client initialized");
+    if fxstreet_client.mode() == FxstreetMode::Mock {
+        info!("Running in FXSTREET_MODE=mock (no external token required)");
+    }
 
     let state = Arc::new(AppState {
         db_writer: writer,
         expected_token,
-        fxstreet_api_url,
-        http_client: reqwest::Client::new(),
+        fxstreet_client,
     });
 
     run(service_fn(move |req| {

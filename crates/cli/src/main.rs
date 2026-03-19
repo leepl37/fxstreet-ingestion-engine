@@ -1,10 +1,9 @@
 use anyhow::{Result, Context};
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use orderx_core::models::{EconomicEvent, EventSource, FxEventRaw};
+use orderx_core::fxstreet::FxstreetClient;
+use orderx_core::models::{EconomicEvent, EventSource};
 use orderx_core::questdb::QuestDbWriter;
-use reqwest::Client;
-use std::env;
 use tokio::time::{sleep, Duration, Instant};
 use tracing::{error, info, warn};
 
@@ -47,68 +46,36 @@ async fn main() -> Result<()> {
     info!("Range: {} to {}", args.from, args.to);
     info!("Page size: {}, Dry Run: {}", args.page_size, args.dry_run);
 
-    let fxstreet_api_url = env::var("FXSTREET_API_URL")
-        .unwrap_or_else(|_| "https://calendar-api.fxstreet.com/eventDates".to_string());
-    
     let db_writer = QuestDbWriter::from_env().context("Failed to setup DB writer from environment variables")?;
-    let client = Client::new();
+    let fxstreet_client = FxstreetClient::from_env().context("Failed to setup FXStreet client from environment variables")?;
     let mut stats = Stats::default();
 
     let mut skip = 0;
     let max_retries = 3;
     
     loop {
-        // Construct standard REST API URL for a date range with pagination
-        // Using common API pagination standard: ?skip={skip}&take={take}
-        let from_str = args.from.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        let to_str = args.to.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        
-        let paged_url = format!("{}/{}/{}?skip={}&take={}",
-            fxstreet_api_url, 
-            from_str,
-            to_str,
-            skip, 
-            args.page_size
-        );
-        
         let mut attempt = 0;
         let mut success = false;
-        let mut raw_events: Vec<FxEventRaw> = Vec::new();
+        let mut raw_events = Vec::new();
 
         while attempt <= max_retries {
             info!("Fetching skip={}, attempt {}/{}", skip, attempt, max_retries);
-            match client.get(&paged_url).send().await {
-                Ok(resp) => {
-                    let status = resp.status();
-                    if status.is_success() {
-                        match resp.json::<Vec<FxEventRaw>>().await {
-                            Ok(events) => {
-                                raw_events = events;
-                                success = true;
-                                break;
-                            }
-                            Err(e) => {
-                                error!("Failed to parse JSON response: {}", e);
-                                stats.failed += args.page_size;
-                                break; // No point retrying if JSON parsing inherently fails
-                            }
-                        }
-                    } else if status.as_u16() == 429 || status.is_server_error() {
-                        stats.retried += 1;
-                        let backoff_secs = 2u64.pow(attempt as u32);
-                        warn!("Received {} from API. Retrying in {} seconds (Attempt {}/{})", status, backoff_secs, attempt, max_retries);
-                        sleep(Duration::from_secs(backoff_secs)).await;
-                        attempt += 1;
-                    } else {
-                        error!("API returned fatal Client Error: {}", status);
-                        stats.failed += args.page_size;
-                        break;
-                    }
+            match fxstreet_client
+                .fetch_event_dates_range(args.from, args.to, skip, args.page_size)
+                .await
+            {
+                Ok(events) => {
+                    raw_events = events;
+                    success = true;
+                    break;
                 }
                 Err(e) => {
                     stats.retried += 1;
                     let backoff_secs = 2u64.pow(attempt as u32);
-                    warn!("Network error: {}. Retrying in {} seconds (Attempt {}/{})", e, backoff_secs, attempt, max_retries);
+                    warn!(
+                        "API call failed: {}. Retrying in {} seconds (Attempt {}/{})",
+                        e, backoff_secs, attempt, max_retries
+                    );
                     sleep(Duration::from_secs(backoff_secs)).await;
                     attempt += 1;
                 }

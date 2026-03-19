@@ -33,7 +33,7 @@ To test the webhook Lambda locally without deploying to AWS:
 1. Install `cargo-lambda` (e.g., `brew tap cargo-lambda/cargo-lambda && brew install cargo-lambda`).
 2. Start the local emulator in the project root:
    ```bash
-   WEBHOOK_SECRET_TOKEN="my-secret-key" cargo lambda watch
+   FXSTREET_MODE=mock WEBHOOK_SECRET_TOKEN="my-secret-key" cargo lambda watch
    ```
 3. Send a test POST request in another terminal:
    ```bash
@@ -45,10 +45,15 @@ To test the webhook Lambda locally without deploying to AWS:
 
 ## Local Testing (Backfill CLI)
 
-To test the backfill CLI locally with a dry-run (fetches data from API but skips QuestDB insert):
+To test the backfill CLI locally with a dry-run (mock mode: no external token required):
 
 ```bash
-cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10 --dry-run
+FXSTREET_MODE=mock cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10 --dry-run
+```
+
+For real FXStreet calls, switch to:
+```bash
+FXSTREET_MODE=real FXSTREET_BEARER_TOKEN="<token>" FXSTREET_API_BASE="https://calendar-api.fxstreet.com/en/api/v1"
 ```
 
 ## Next Steps
