@@ -81,11 +81,25 @@ cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --test
 
 ## Real FXStreet Mode
 
-For live API calls, set credentials and run the CLI:
+### 1) Webhook Lambda (real API path)
+
+When `X-Test-Mode` is NOT set, Lambda fetches full event data from FXStreet using `eventDateId`.
+
+```bash
+curl -i -X POST <webhook_lambda_public_url> \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Token: <webhook_secret_token>" \
+  -d '{"eventDateId":"<real-event-date-id>"}'
+```
+
+Expected result: `HTTP 200` and body `OK` (if token is valid and `FXSTREET_BEARER_TOKEN` is configured).
+
+### 2) Backfill CLI (real API)
+
+Set credentials and run the CLI:
 
 ```bash
 FXSTREET_BEARER_TOKEN="<token>" \
-FXSTREET_API_BASE="https://calendar-api.fxstreet.com/en/api/v1" \
 QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
 cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10
 ```
