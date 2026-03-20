@@ -1,73 +1,112 @@
 # FXStreet News Ingestion Engine
 
-This repository contains the implementation for a Rust-based
-ingestion engine with AWS Lambda, QuestDB, and Terraform.
+Rust-based ingestion engine for FXStreet economic calendar data.
+It supports:
+- real-time webhook ingestion (`AWS Lambda -> QuestDB`)
+- historical backfill (`CLI -> FXStreet REST API -> QuestDB`)
+- infrastructure provisioning (`Terraform on AWS`)
 
 ## Definition of Done (DoD)
 
 - [x] Core: event models (`FxEventRaw` / `EconomicEvent`) and API field mapping verified; `cargo test -p core` passes
-- [ ] Webhook `POST` request is received and stored in QuestDB
-- [ ] Backfill CLI stores historical events for a given date range
-- [ ] Full infrastructure is deployed with one `terraform apply`
-- [ ] Retry behavior and logs make failures diagnosable
-- [ ] Another engineer can reproduce the setup with this README only
+- [x] Webhook POST request is received and stored in QuestDB (mock mode validated)
+- [x] Backfill CLI stores historical events for a given date range (mock mode validated)
+- [x] Full infrastructure is deployed with one `terraform apply`
+- [x] Retry behavior and logs make failures diagnosable (`input` / `api` / `db`)
+- [x] Another engineer can reproduce the setup with this README only (mock mode first, real mode optional)
 
-## Current Project Structure
+## Repository Layout
 
 ```text
 project-root/
-├─ Cargo.toml
-├─ README.md
 ├─ crates/
-│  ├─ core/
-│  ├─ lambda/
-│  └─ cli/
+│  ├─ core/      # shared models, FXStreet client, QuestDB writer, errors
+│  ├─ lambda/    # webhook ingestion Lambda
+│  └─ cli/       # historical backfill tool
 └─ infra/
-   └─ terraform/
+   └─ terraform/ # AWS infrastructure
 ```
 
-## Local Testing (Webhook Lambda)
+## Prerequisites
 
-To test the webhook Lambda locally without deploying to AWS:
+- Rust toolchain
+- `cargo-lambda` (for local Lambda testing)
+- Reachable QuestDB instance (`<QUESTDB_HOST>:9009`)
+- (Optional, real mode) FXStreet bearer token
 
-1. Install `cargo-lambda` (e.g., `brew tap cargo-lambda/cargo-lambda && brew install cargo-lambda`).
-2. Start the local emulator in the project root:
-   ```bash
-   FXSTREET_MODE=mock WEBHOOK_SECRET_TOKEN="my-secret-key" cargo lambda watch
-   ```
-3. Send a test POST request in another terminal:
-   ```bash
-   curl -v -X POST http://127.0.0.1:9000/lambda-url/lambda \
-     -H "Content-Type: application/json" \
-     -H "X-Webhook-Token: my-secret-key" \
-     -d '{"eventDateId": "test-uuid"}'
-   ```
+## Local Test (Mock Mode, Recommended First)
 
-## Local Testing (Backfill CLI)
+Use mock mode when FXStreet credentials are not available.
 
-To test the backfill CLI locally with a dry-run (mock mode: no external token required):
+### 1) Webhook Lambda
+
+Start local runtime:
 
 ```bash
-FXSTREET_MODE=mock cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10 --dry-run
+cargo lambda watch -p lambda \
+  --env-var FXSTREET_MODE=mock,WEBHOOK_SECRET_TOKEN=my-secret-key,QUESTDB_HOST=<QUESTDB_HOST>,QUESTDB_ILP_PORT=9009
 ```
 
-For real FXStreet calls, switch to:
+Send test event:
+
 ```bash
-FXSTREET_MODE=real FXSTREET_BEARER_TOKEN="<token>" FXSTREET_API_BASE="https://calendar-api.fxstreet.com/en/api/v1"
+curl -i -X POST http://127.0.0.1:9000/lambda-url/lambda \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Token: my-secret-key" \
+  -d '{"eventDateId":"test-uuid"}'
 ```
 
-## Reliability Notes
+Expected result: `HTTP 200` and body `OK`.
 
-- HTTP timeout: FXStreet client uses a 15-second request timeout.
-- Retry policy: only retry transient failures (network error, 429, 5xx) with exponential backoff.
-- Non-retryable failures (e.g., 400/401/403/404) fail fast to avoid wasting runtime.
-- Error categories used in logs: `input`, `api`, `db`.
+### 2) Backfill CLI
 
-## Idempotency Strategy
+Dry-run (no DB write):
 
-- Deduplication key: `event_id + event_time`.
-- Webhook events can be re-delivered; duplicate records should be treated as expected behavior.
-- Current implementation keeps data model consistency and logs duplicates-friendly identifiers.
+```bash
+FXSTREET_MODE=mock cargo run -p cli -- \
+  --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10 --dry-run
+```
+
+Actual write test:
+
+```bash
+QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 FXSTREET_MODE=mock \
+cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10
+```
+
+`<QUESTDB_HOST>` example:
+- local Docker QuestDB: `127.0.0.1`
+- AWS EC2 QuestDB: `terraform output -raw questdb_public_ip`
+
+## Real FXStreet Mode
+
+For live API calls, set credentials and run the CLI:
+
+```bash
+FXSTREET_MODE=real \
+FXSTREET_BEARER_TOKEN="<token>" \
+FXSTREET_API_BASE="https://calendar-api.fxstreet.com/en/api/v1" \
+QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
+cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10
+```
+
+## Terraform Deploy (AWS)
+
+```bash
+cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars: see terraform.tfvars.example for reference
+terraform init
+terraform apply
+terraform output   # prints questdb_public_ip and webhook_lambda_public_url
+```
+
+## Notes
+
+- Retry: transient failures only (network, `429`, `5xx`) with backoff.
+- Fast-fail: non-retryable errors (`400/401/403/404`).
+- Log categories: `input`, `api`, `db`.
+- If local webhook returns `500`, first check missing env vars (`FXSTREET_MODE`, `QUESTDB_HOST`, `QUESTDB_ILP_PORT`).
 
 ## Next Steps
 
@@ -75,4 +114,4 @@ FXSTREET_MODE=real FXSTREET_BEARER_TOKEN="<token>" FXSTREET_API_BASE="https://ca
 2. ~~Implement QuestDB writer and table bootstrap logic.~~ ✓
 3. ~~Implement webhook Lambda flow in `crates/lambda`.~~ ✓
 4. ~~Implement backfill CLI flow in `crates/cli`.~~ ✓
-5. ~~Implement Terraform infrastructure in `infra/terraform`.~~
+5. ~~Implement Terraform infrastructure in `infra/terraform`.~~ ✓
