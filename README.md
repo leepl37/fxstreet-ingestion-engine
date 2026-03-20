@@ -115,7 +115,7 @@ terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 - **CLI test mode**: add `--test` flag → inserts single dummy event and exits immediately.
 - **Real path vs test fallback**: non-test requests use the real FXStreet API path; test mode exists only as a verification fallback when credentials/webhook delivery are unavailable.
 - Without `FXSTREET_BEARER_TOKEN`, non-test API calls will fail: Lambda returns `500`, CLI returns `Configuration error: Missing FXSTREET_BEARER_TOKEN`.
-- **Function URL note**: if direct external `curl` to Function URL returns `403` in your AWS account, validate webhook behavior with `aws lambda invoke` (handler logic verified).
+- **Function URL status**: external webhook calls to Lambda Function URL are validated (`HTTP 200` in test mode).
 - **Networking trade-off**: current setup uses QuestDB public IP reachability for simplicity; production-hardening would place Lambda inside VPC and restrict QuestDB ingress to private CIDRs/security groups.
 
 ## Next Steps

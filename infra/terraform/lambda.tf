@@ -86,3 +86,12 @@ resource "aws_lambda_permission" "public_function_url" {
   principal              = "*"
   function_url_auth_type = "NONE"
 }
+
+# Some AWS environments also require InvokeFunction permission
+# constrained to Function URL requests.
+resource "aws_lambda_permission" "public_invoke_via_function_url" {
+  statement_id  = "FunctionURLAllowInvokeFunction"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.webhook_lambda.function_name
+  principal     = "*"
+}
