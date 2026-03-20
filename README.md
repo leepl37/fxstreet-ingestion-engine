@@ -9,11 +9,11 @@ It supports:
 ## Definition of Done (DoD)
 
 - [x] Core: event models (`FxEventRaw` / `EconomicEvent`) and API field mapping verified; `cargo test -p core` passes
-- [x] Webhook POST request is received and stored in QuestDB (mock mode validated)
-- [x] Backfill CLI stores historical events for a given date range (mock mode validated)
+- [x] Webhook POST request is received and stored in QuestDB (test mode validated)
+- [x] Backfill CLI stores historical events for a given date range (`--test` flag validated)
 - [x] Full infrastructure is deployed with one `terraform apply`
 - [x] Retry behavior and logs make failures diagnosable (`input` / `api` / `db`)
-- [x] Another engineer can reproduce the setup with this README only (mock mode first, real mode optional)
+- [x] Another engineer can reproduce the setup with this README only
 
 ## Repository Layout
 
@@ -34,9 +34,9 @@ project-root/
 - Reachable QuestDB instance (`<QUESTDB_HOST>:9009`)
 - (Optional, real mode) FXStreet bearer token
 
-## Local Test (Mock Mode, Recommended First)
+## Local Test
 
-Use mock mode when FXStreet credentials are not available.
+No FXStreet credentials required. Use built-in test modes.
 
 ### 1) Webhook Lambda
 
@@ -44,34 +44,34 @@ Start local runtime:
 
 ```bash
 cargo lambda watch -p lambda \
-  --env-var FXSTREET_MODE=mock,WEBHOOK_SECRET_TOKEN=my-secret-key,QUESTDB_HOST=<QUESTDB_HOST>,QUESTDB_ILP_PORT=9009
+  --env-var WEBHOOK_SECRET_TOKEN=my-secret-key,QUESTDB_HOST=<QUESTDB_HOST>,QUESTDB_ILP_PORT=9009
 ```
 
-Send test event:
+Send test event using `X-Test-Mode: true` header (inserts dummy data, no FXStreet API call):
 
 ```bash
 curl -i -X POST http://127.0.0.1:9000/lambda-url/lambda \
   -H "Content-Type: application/json" \
   -H "X-Webhook-Token: my-secret-key" \
-  -d '{"eventDateId":"test-uuid"}'
+  -H "X-Test-Mode: true" \
+  -d '{}'
 ```
 
-Expected result: `HTTP 200` and body `OK`.
+Expected result: `HTTP 200` and body `OK (test mode)`.
 
 ### 2) Backfill CLI
 
-Dry-run (no DB write):
+Insert single dummy event directly into QuestDB (no FXStreet API call):
 
 ```bash
-FXSTREET_MODE=mock cargo run -p cli -- \
-  --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10 --dry-run
+QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
+cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --test
 ```
 
-Actual write test:
+Dry-run (fetch mock data, skip DB write):
 
 ```bash
-QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 FXSTREET_MODE=mock \
-cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10
+cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --dry-run
 ```
 
 `<QUESTDB_HOST>` example:
@@ -83,7 +83,6 @@ cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page
 For live API calls, set credentials and run the CLI:
 
 ```bash
-FXSTREET_MODE=real \
 FXSTREET_BEARER_TOKEN="<token>" \
 FXSTREET_API_BASE="https://calendar-api.fxstreet.com/en/api/v1" \
 QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
@@ -107,9 +106,10 @@ terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 - Retry: transient failures only (network, `429`, `5xx`) with backoff.
 - Fast-fail: non-retryable errors (`400/401/403/404`).
 - Log categories: `input`, `api`, `db`.
-- If local webhook returns `500`, first check missing env vars (`FXSTREET_MODE`, `QUESTDB_HOST`, `QUESTDB_ILP_PORT`).
+- If local webhook returns `500`, first check missing env vars (`QUESTDB_HOST`, `QUESTDB_ILP_PORT`).
 - **Lambda test mode**: add `X-Test-Mode: true` header to any authenticated POST → inserts dummy event directly into QuestDB (no FXStreet API call needed).
 - **CLI test mode**: add `--test` flag → inserts single dummy event and exits immediately.
+- Without `FXSTREET_BEARER_TOKEN`, real API calls will fail: Lambda returns `500`, CLI returns `Configuration error: Missing FXSTREET_BEARER_TOKEN`.
 
 ## Next Steps
 

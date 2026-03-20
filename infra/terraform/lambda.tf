@@ -64,10 +64,8 @@ resource "aws_lambda_function" "webhook_lambda" {
   environment {
     variables = {
       RUST_LOG             = "info"
-      # Switch to "real" once FXStreet bearer token is available.
-      # For testing without changing this, use X-Test-Mode: true header.
-      FXSTREET_MODE        = "real"
-      # FXSTREET_BEARER_TOKEN = "<add when token received from FXStreet>"
+      # Add FXSTREET_BEARER_TOKEN here when token is received from FXStreet.
+      # For testing, use X-Test-Mode: true header — no token required.
       FXSTREET_API_BASE    = "https://calendar-api.fxstreet.com/en/api/v1"
       QUESTDB_HOST         = aws_instance.questdb.public_ip
       QUESTDB_ILP_PORT     = "9009"

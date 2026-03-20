@@ -31,7 +31,7 @@ pub struct FxstreetClient {
 
 impl FxstreetClient {
     pub fn from_env() -> Result<Self, CoreError> {
-        let mode_raw = std::env::var("FXSTREET_MODE").unwrap_or_else(|_| "mock".to_string());
+        let mode_raw = std::env::var("FXSTREET_MODE").unwrap_or_else(|_| "real".to_string());
         let mode = FxstreetMode::from_env(&mode_raw)?;
 
         let base_url = std::env::var("FXSTREET_API_BASE")

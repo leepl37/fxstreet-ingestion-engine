@@ -1,1 +1,1 @@
-{"statusCode":200,"headers":{},"multiValueHeaders":{},"body":"OK (test mode)","isBase64Encoded":false,"cookies":[]}
+{"statusCode":500,"headers":{},"multiValueHeaders":{},"body":"Internal Server Error","isBase64Encoded":false,"cookies":[]}
