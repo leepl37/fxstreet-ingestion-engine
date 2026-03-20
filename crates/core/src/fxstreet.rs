@@ -41,7 +41,10 @@ impl FxstreetClient {
         }
     }
 
-    pub async fn fetch_event_date_by_id(&self, event_date_id: &str) -> Result<FxEventRaw, CoreError> {
+    pub async fn fetch_event_date_by_id(
+        &self,
+        event_date_id: &str,
+    ) -> Result<FxEventRaw, CoreError> {
         if self.is_mock {
             return Ok(mock_event(event_date_id, Utc::now()));
         }
@@ -50,7 +53,11 @@ impl FxstreetClient {
             .bearer_token
             .as_deref()
             .ok_or_else(|| CoreError::Config("Missing FXSTREET_BEARER_TOKEN".to_string()))?;
-        let url = format!("{}/eventDates/{}", self.base_url.trim_end_matches('/'), event_date_id);
+        let url = format!(
+            "{}/eventDates/{}",
+            self.base_url.trim_end_matches('/'),
+            event_date_id
+        );
         let res = self.http_client.get(url).bearer_auth(token).send().await?;
         if !res.status().is_success() {
             let status = res.status().as_u16();

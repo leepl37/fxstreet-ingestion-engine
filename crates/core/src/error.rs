@@ -55,7 +55,9 @@ impl CoreError {
             // transport-level failures are usually transient
             CoreError::Http(_) => true,
             // explicit status-based policy
-            CoreError::ExternalApiStatus { status, .. } => *status == 429 || (500..=599).contains(status),
+            CoreError::ExternalApiStatus { status, .. } => {
+                *status == 429 || (500..=599).contains(status)
+            }
             _ => false,
         }
     }

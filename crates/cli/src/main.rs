@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use orderx_core::fxstreet::FxstreetClient;
@@ -8,7 +8,11 @@ use tokio::time::{sleep, Duration, Instant};
 use tracing::{error, info, warn};
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Backfill historical FXStreet economic events")]
+#[command(
+    author,
+    version,
+    about = "Backfill historical FXStreet economic events"
+)]
 struct Args {
     /// Start date in RFC3339 format (e.g., 2026-03-01T00:00:00Z)
     #[arg(long)]
@@ -42,7 +46,7 @@ struct Stats {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
-    
+
     let args = Args::parse();
     validate_date_range(args.from, args.to)?;
     let start_time = Instant::now();
@@ -51,14 +55,17 @@ async fn main() -> Result<()> {
     info!("Range: {} to {}", args.from, args.to);
     info!("Page size: {}, Dry Run: {}", args.page_size, args.dry_run);
 
-    let db_writer = QuestDbWriter::from_env().context("Failed to setup DB writer from environment variables")?;
+    let db_writer = QuestDbWriter::from_env()
+        .context("Failed to setup DB writer from environment variables")?;
 
     // --test: use a single dummy event and exit immediately.
     // If --dry-run is also set, do not write to DB.
     if args.test {
         use orderx_core::fxstreet::FxstreetClient;
         let dummy_client = FxstreetClient::new_mock();
-        let raw = dummy_client.fetch_event_date_by_id("cli-test-dummy").await
+        let raw = dummy_client
+            .fetch_event_date_by_id("cli-test-dummy")
+            .await
             .context("Failed to build dummy event")?;
         let event = EconomicEvent::from((raw, EventSource::Backfill));
 
@@ -82,19 +89,23 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let fxstreet_client = FxstreetClient::from_env().context("Failed to setup FXStreet client from environment variables")?;
+    let fxstreet_client = FxstreetClient::from_env()
+        .context("Failed to setup FXStreet client from environment variables")?;
     let mut stats = Stats::default();
 
     let mut skip = 0;
     let max_retries = 3;
-    
+
     loop {
         let mut attempt = 0;
         let mut success = false;
         let mut raw_events = Vec::new();
 
         while attempt <= max_retries {
-            info!("Fetching skip={}, attempt {}/{}", skip, attempt, max_retries);
+            info!(
+                "Fetching skip={}, attempt {}/{}",
+                skip, attempt, max_retries
+            );
             match fxstreet_client
                 .fetch_event_dates_range(args.from, args.to, skip, args.page_size)
                 .await
@@ -110,7 +121,10 @@ async fn main() -> Result<()> {
                         let backoff_secs = 2u64.pow(attempt as u32);
                         warn!(
                             "Retryable API error: {}. Retrying in {} seconds (Attempt {}/{})",
-                            e, backoff_secs, attempt + 1, max_retries
+                            e,
+                            backoff_secs,
+                            attempt + 1,
+                            max_retries
                         );
                         sleep(Duration::from_secs(backoff_secs)).await;
                         attempt += 1;
@@ -126,14 +140,17 @@ async fn main() -> Result<()> {
         }
 
         if !success && attempt > max_retries {
-            error!("Max retries reached for block starting at skip={}. Skipping this page.", skip);
+            error!(
+                "Max retries reached for block starting at skip={}. Skipping this page.",
+                skip
+            );
             // Even if one page fails, we can continue to the next one to salvage the rest of the backfill
             stats.failed += args.page_size;
         }
 
         if raw_events.is_empty() {
             info!("No events fetched on this page. Finished pagination.");
-            break; 
+            break;
         }
 
         let count = raw_events.len();
@@ -154,7 +171,10 @@ async fn main() -> Result<()> {
                 info!("Successfully inserted {} events into QuestDB", count);
             }
         } else {
-            info!("[DRY RUN] Would have transformed and inserted {} events", count);
+            info!(
+                "[DRY RUN] Would have transformed and inserted {} events",
+                count
+            );
         }
 
         // If returned count is less than requested page size, it means this was the last page
@@ -166,7 +186,7 @@ async fn main() -> Result<()> {
     }
 
     let elapsed = start_time.elapsed().as_millis();
-    
+
     // Print the final required output
     println!("\n=== Backfill Summary ===");
     println!("fetched: {}", stats.fetched);
