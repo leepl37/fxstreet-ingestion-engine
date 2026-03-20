@@ -61,14 +61,14 @@ Expected result: `HTTP 200` and body `OK (test mode)`.
 
 ### 2) Backfill CLI
 
-Insert single dummy event directly into QuestDB (no FXStreet API call):
+Test mode (dummy event, writes to QuestDB, no FXStreet API call):
 
 ```bash
 QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
 cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --test
 ```
 
-Dry-run local test (no FXStreet API call, no DB write):
+Test dry-run mode (dummy event, no FXStreet API call, no DB write):
 
 ```bash
 QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
@@ -107,21 +107,8 @@ terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 
 ## Notes
 
-- Retry: transient failures only (network, `429`, `5xx`) with backoff.
-- Fast-fail: non-retryable errors (`400/401/403/404`).
-- Log categories: `input`, `api`, `db`.
-- If local webhook returns `500`, first check missing env vars (`QUESTDB_HOST`, `QUESTDB_ILP_PORT`).
-- **Lambda test mode**: add `X-Test-Mode: true` header to any authenticated POST → inserts dummy event directly into QuestDB (no FXStreet API call needed).
-- **CLI test mode**: add `--test` flag → inserts single dummy event and exits immediately.
-- **Real path vs test fallback**: non-test requests use the real FXStreet API path; test mode exists only as a verification fallback when credentials/webhook delivery are unavailable.
-- Without `FXSTREET_BEARER_TOKEN`, non-test API calls will fail: Lambda returns `500`, CLI returns `Configuration error: Missing FXSTREET_BEARER_TOKEN`.
-- **Function URL status**: external webhook calls to Lambda Function URL are validated (`HTTP 200` in test mode).
-- **Networking trade-off**: current setup uses QuestDB public IP reachability for simplicity; production-hardening would place Lambda inside VPC and restrict QuestDB ingress to private CIDRs/security groups.
-
-## Next Steps
-
-1. ~~Implement shared models and configuration in `crates/core`.~~ ✓
-2. ~~Implement QuestDB writer and table bootstrap logic.~~ ✓
-3. ~~Implement webhook Lambda flow in `crates/lambda`.~~ ✓
-4. ~~Implement backfill CLI flow in `crates/cli`.~~ ✓
-5. ~~Implement Terraform infrastructure in `infra/terraform`.~~ ✓
+- Retry policy: transient failures only (`network`, `429`, `5xx`) with backoff; fail fast on non-retryable errors (`400/401/403/404`).
+- Logging categories: `input`, `api`, `db`.
+- Real path vs test fallback: non-test requests use the real FXStreet API path; test mode exists as a verification fallback.
+- Function URL status: external webhook calls to Lambda Function URL are validated (`HTTP 200` in test mode).
+- Networking trade-off: current setup uses QuestDB public IP reachability for simplicity; production-hardening would place Lambda inside VPC and restrict QuestDB ingress to private CIDRs/security groups.
