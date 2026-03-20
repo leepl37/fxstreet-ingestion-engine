@@ -126,3 +126,25 @@ terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 - Real path vs test fallback: non-test requests use the real FXStreet API path; test mode exists as a verification fallback.
 - Function URL status: external webhook calls to Lambda Function URL are validated (`HTTP 200` in test mode).
 - Networking trade-off: current setup uses QuestDB public IP reachability for simplicity; production-hardening would place Lambda inside VPC and restrict QuestDB ingress to private CIDRs/security groups.
+
+## Verification Results
+
+- [x] Lambda test mode: `HTTP 200` and body `OK (test mode)`.
+- [x] CLI `--test`: inserted one dummy event into QuestDB.
+- [x] CLI `--test --dry-run`: validated flow with `inserted: 0` (no DB write).
+
+Reference commands used (with placeholders):
+
+```bash
+curl -i -X POST "<webhook_lambda_public_url>" \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Token: <webhook_secret_token>" \
+  -H "X-Test-Mode: true" \
+  -d '{}'
+
+QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
+cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10 --test
+
+QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
+cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page-size 10 --test --dry-run
+```
