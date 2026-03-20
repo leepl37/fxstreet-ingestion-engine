@@ -40,6 +40,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     
     let args = Args::parse();
+    validate_date_range(args.from, args.to)?;
     let start_time = Instant::now();
 
     info!("Starting FXStreet Backfill CLI");
@@ -70,14 +71,22 @@ async fn main() -> Result<()> {
                     break;
                 }
                 Err(e) => {
-                    stats.retried += 1;
-                    let backoff_secs = 2u64.pow(attempt as u32);
-                    warn!(
-                        "API call failed: {}. Retrying in {} seconds (Attempt {}/{})",
-                        e, backoff_secs, attempt, max_retries
-                    );
-                    sleep(Duration::from_secs(backoff_secs)).await;
-                    attempt += 1;
+                    if e.is_retryable() && attempt < max_retries {
+                        stats.retried += 1;
+                        let backoff_secs = 2u64.pow(attempt as u32);
+                        warn!(
+                            "Retryable API error: {}. Retrying in {} seconds (Attempt {}/{})",
+                            e, backoff_secs, attempt + 1, max_retries
+                        );
+                        sleep(Duration::from_secs(backoff_secs)).await;
+                        attempt += 1;
+                    } else if e.is_retryable() {
+                        error!("Max retries reached for retryable error: {}", e);
+                        stats.failed += args.page_size;
+                        break;
+                    } else {
+                        return Err(anyhow::anyhow!("Non-retryable API error: {}", e));
+                    }
                 }
             }
         }
@@ -134,4 +143,35 @@ async fn main() -> Result<()> {
     println!("========================\n");
 
     Ok(())
+}
+
+fn validate_date_range(from: DateTime<Utc>, to: DateTime<Utc>) -> Result<()> {
+    if from > to {
+        return Err(anyhow::anyhow!(
+            "Invalid range: --from must be earlier than or equal to --to"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn accepts_valid_date_range() {
+        let from = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+        let to = Utc.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap();
+        let result = validate_date_range(from, to);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_date_range() {
+        let from = Utc.with_ymd_and_hms(2026, 3, 3, 0, 0, 0).unwrap();
+        let to = Utc.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap();
+        let result = validate_date_range(from, to);
+        assert!(result.is_err());
+    }
 }
