@@ -64,7 +64,9 @@ resource "aws_security_group" "questdb_sg" {
     from_port   = 9009
     to_port     = 9009
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Open to allow Lambda access
+    # Currently open to allow Lambda (outside VPC) access via public IP.
+    # Production: move Lambda into VPC and restrict to "10.0.0.0/16" only.
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {

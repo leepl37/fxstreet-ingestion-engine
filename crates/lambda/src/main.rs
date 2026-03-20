@@ -77,15 +77,34 @@ async fn function_handler(req: Request, state: Arc<AppState>) -> Result<Response
         }
     };
 
-    // 4. Fetch full event via FXStreet API (500 if DB/API error)
-    let raw_event = match state.fxstreet_client.fetch_event_date_by_id(&event_date_id).await {
-        Ok(event) => event,
-        Err(e) => {
-            status_code = 500;
-            error!(status = status_code, category = "api", event_id = %event_date_id, error = ?e, latency_ms = start.elapsed().as_millis(), "External FXStreet API HTTP request failure");
-            return Ok(Response::builder().status(status_code).body(Body::Text("Internal Server Error".into()))?);
+    // 4. Fetch full event via FXStreet API — up to 2 retries on transient errors
+    let mut raw_event = None;
+    let max_retries = 2;
+    for attempt in 0..=max_retries {
+        match state.fxstreet_client.fetch_event_date_by_id(&event_date_id).await {
+            Ok(event) => {
+                raw_event = Some(event);
+                break;
+            }
+            Err(e) if e.is_retryable() && attempt < max_retries => {
+                let wait_ms = 500 * (attempt as u64 + 1);
+                tracing::warn!(
+                    category = "api",
+                    attempt,
+                    event_id = %event_date_id,
+                    "Transient API error, retrying in {}ms: {}",
+                    wait_ms, e
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+            }
+            Err(e) => {
+                status_code = 500;
+                error!(status = status_code, category = "api", event_id = %event_date_id, error = ?e, latency_ms = start.elapsed().as_millis(), "External FXStreet API HTTP request failure");
+                return Ok(Response::builder().status(status_code).body(Body::Text("Internal Server Error".into()))?);
+            }
         }
-    };
+    }
+    let raw_event = raw_event.unwrap();
 
     // 5. Transform and Write to Database
     let economic_event = EconomicEvent::from((raw_event, EventSource::Webhook));

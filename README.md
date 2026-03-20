@@ -93,6 +93,7 @@ cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page
 ## Terraform Deploy (AWS)
 
 ```bash
+cargo lambda build --release --arm64 -p lambda  # build Lambda binary first
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: see terraform.tfvars.example for reference

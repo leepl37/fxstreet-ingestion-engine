@@ -44,7 +44,8 @@ impl QuestDbWriter {
             source SYMBOL,
             ingested_at TIMESTAMP,
             event_time TIMESTAMP
-        ) TIMESTAMP(event_time) PARTITION BY MONTH;";
+        ) TIMESTAMP(event_time) PARTITION BY MONTH
+        DEDUP UPSERT KEYS(event_time, event_id);";
 
         let url = format!("http://{}:{}/exec", self.host, self.http_port);
         let res = self
