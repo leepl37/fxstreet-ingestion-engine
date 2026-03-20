@@ -43,6 +43,26 @@ async fn function_handler(req: Request, state: Arc<AppState>) -> Result<Response
         return Ok(Response::builder().status(status_code).body(Body::Text("Forbidden".into()))?);
     }
 
+    // 2.5 Test mode: X-Test-Mode header → insert dummy event directly (no FXStreet API call)
+    let is_test_mode = req.headers().get("X-Test-Mode")
+        .and_then(|h| h.to_str().ok())
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    if is_test_mode {
+        use orderx_core::fxstreet::FxstreetClient;
+        let dummy_client = FxstreetClient::new_mock();
+        let raw = dummy_client.fetch_event_date_by_id("lambda-test-dummy").await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        let event = EconomicEvent::from((raw, EventSource::Webhook));
+        if let Err(e) = state.db_writer.write_event(&event).await {
+            error!(category = "db", error = %e, "[TEST] QuestDB write failed");
+            return Ok(Response::builder().status(500).body(Body::Text("Internal Server Error".into()))?);
+        }
+        info!(latency_ms = start.elapsed().as_millis(), "[TEST] Inserted 1 dummy event into QuestDB");
+        return Ok(Response::builder().status(200).body(Body::Text("OK (test mode)".into()))?);
+    }
+
     // 3. Payload parsing & validation (400 if failed)
     let payload_res = match req.body() {
         Body::Text(text) => serde_json::from_str::<WebhookPayload>(text),

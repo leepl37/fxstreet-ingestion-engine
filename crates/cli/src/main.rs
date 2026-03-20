@@ -25,6 +25,10 @@ struct Args {
     /// Fetch data but skip Database insertion
     #[arg(long, default_value_t = false)]
     dry_run: bool,
+
+    /// Insert a single dummy event directly into QuestDB (bypasses FXStreet API)
+    #[arg(long, default_value_t = false)]
+    test: bool,
 }
 
 #[derive(Default, Debug)]
@@ -49,6 +53,23 @@ async fn main() -> Result<()> {
 
     let db_writer = QuestDbWriter::from_env().context("Failed to setup DB writer from environment variables")?;
     let fxstreet_client = FxstreetClient::from_env().context("Failed to setup FXStreet client from environment variables")?;
+
+    // --test: insert a single dummy event and exit immediately
+    if args.test {
+        use orderx_core::fxstreet::FxstreetClient;
+        let dummy_client = FxstreetClient::new_mock();
+        let raw = dummy_client.fetch_event_date_by_id("cli-test-dummy").await
+            .context("Failed to build dummy event")?;
+        let event = EconomicEvent::from((raw, EventSource::Backfill));
+        db_writer.write_event(&event).await
+            .context("Failed to write dummy event to QuestDB")?;
+        info!("[TEST] Inserted 1 dummy event into QuestDB successfully");
+        println!("\n=== Test Mode ===");
+        println!("inserted: 1 dummy event");
+        println!("==================");
+        return Ok(());
+    }
+
     let mut stats = Stats::default();
 
     let mut skip = 0;

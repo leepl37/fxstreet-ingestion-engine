@@ -108,6 +108,8 @@ terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 - Fast-fail: non-retryable errors (`400/401/403/404`).
 - Log categories: `input`, `api`, `db`.
 - If local webhook returns `500`, first check missing env vars (`FXSTREET_MODE`, `QUESTDB_HOST`, `QUESTDB_ILP_PORT`).
+- **Lambda test mode**: add `X-Test-Mode: true` header to any authenticated POST → inserts dummy event directly into QuestDB (no FXStreet API call needed).
+- **CLI test mode**: add `--test` flag → inserts single dummy event and exits immediately.
 
 ## Next Steps
 

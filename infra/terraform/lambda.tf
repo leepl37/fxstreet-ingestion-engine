@@ -64,14 +64,13 @@ resource "aws_lambda_function" "webhook_lambda" {
   environment {
     variables = {
       RUST_LOG             = "info"
-      # Set to "real" and add FXSTREET_BEARER_TOKEN when production token is available.
-      # Set to "mock" for testing without a real FXStreet API key.
-      FXSTREET_MODE        = "mock"
+      # Switch to "real" once FXStreet bearer token is available.
+      # For testing without changing this, use X-Test-Mode: true header.
+      FXSTREET_MODE        = "real"
+      # FXSTREET_BEARER_TOKEN = "<add when token received from FXStreet>"
       FXSTREET_API_BASE    = "https://calendar-api.fxstreet.com/en/api/v1"
       QUESTDB_HOST         = aws_instance.questdb.public_ip
       QUESTDB_ILP_PORT     = "9009"
-      # We inject the secret linearly here to match our `main.rs` env::var() code, 
-      # but it is formally stored as canonical truth in SSM parameter above!
       WEBHOOK_SECRET_TOKEN = var.webhook_secret_token
     }
   }
