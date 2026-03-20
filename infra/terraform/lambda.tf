@@ -63,13 +63,12 @@ resource "aws_lambda_function" "webhook_lambda" {
 
   environment {
     variables = {
-      RUST_LOG             = "info"
-      # Add FXSTREET_BEARER_TOKEN here when token is received from FXStreet.
-      # For testing, use X-Test-Mode: true header — no token required.
-      FXSTREET_API_BASE    = "https://calendar-api.fxstreet.com/en/api/v1"
-      QUESTDB_HOST         = aws_instance.questdb.public_ip
-      QUESTDB_ILP_PORT     = "9009"
-      WEBHOOK_SECRET_TOKEN = var.webhook_secret_token
+      RUST_LOG              = "info"
+      FXSTREET_API_BASE     = "https://calendar-api.fxstreet.com/en/api/v1"
+      FXSTREET_BEARER_TOKEN = var.fxstreet_bearer_token
+      QUESTDB_HOST          = aws_instance.questdb.public_ip
+      QUESTDB_ILP_PORT      = "9009"
+      WEBHOOK_SECRET_TOKEN  = var.webhook_secret_token
     }
   }
 }

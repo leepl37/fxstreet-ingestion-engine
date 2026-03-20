@@ -68,10 +68,11 @@ QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
 cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --test
 ```
 
-Dry-run (fetch mock data, skip DB write):
+Dry-run local test (no FXStreet API call, no DB write):
 
 ```bash
-cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --dry-run
+QUESTDB_HOST=<QUESTDB_HOST> QUESTDB_ILP_PORT=9009 \
+cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --test --dry-run
 ```
 
 `<QUESTDB_HOST>` example:
@@ -109,7 +110,7 @@ terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 - If local webhook returns `500`, first check missing env vars (`QUESTDB_HOST`, `QUESTDB_ILP_PORT`).
 - **Lambda test mode**: add `X-Test-Mode: true` header to any authenticated POST → inserts dummy event directly into QuestDB (no FXStreet API call needed).
 - **CLI test mode**: add `--test` flag → inserts single dummy event and exits immediately.
-- Without `FXSTREET_BEARER_TOKEN`, real API calls will fail: Lambda returns `500`, CLI returns `Configuration error: Missing FXSTREET_BEARER_TOKEN`.
+- Without `FXSTREET_BEARER_TOKEN`, non-test API calls will fail: Lambda returns `500`, CLI returns `Configuration error: Missing FXSTREET_BEARER_TOKEN`.
 
 ## Next Steps
 

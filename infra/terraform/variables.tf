@@ -28,6 +28,13 @@ variable "webhook_secret_token" {
   sensitive   = true
 }
 
+variable "fxstreet_bearer_token" {
+  description = "Optional FXStreet API bearer token. Required for non-test webhook/CLI real calls."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "ec2_instance_type" {
   description = "EC2 instance type for QuestDB. t3.micro is eligible for free tier in many regions."
   type        = string
