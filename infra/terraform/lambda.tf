@@ -56,19 +56,19 @@ resource "aws_lambda_function" "webhook_lambda" {
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
   function_name    = "${var.project_name}-webhook"
   role             = aws_iam_role.lambda_role.arn
-  handler          = "bootstrap" # Required for provided runtime
+  handler          = "bootstrap"       # Required for provided runtime
   runtime          = "provided.al2023" # Custom Rust runtime built into AL2023
   architectures    = ["arm64"]
   timeout          = 30
 
   environment {
     variables = {
-      RUST_LOG             = "info"
-      QUESTDB_HOST         = aws_instance.questdb.public_ip
-      QUESTDB_ILP_PORT     = "9009"
+      RUST_LOG         = "info"
+      QUESTDB_HOST     = aws_instance.questdb.public_ip
+      QUESTDB_ILP_PORT = "9009"
       # We inject the secret linearly here to match our `main.rs` env::var() code, 
       # but it is formally stored as canonical truth in SSM parameter above!
-      WEBHOOK_SECRET_TOKEN = var.webhook_secret_token 
+      WEBHOOK_SECRET_TOKEN = var.webhook_secret_token
     }
   }
 }
@@ -76,7 +76,7 @@ resource "aws_lambda_function" "webhook_lambda" {
 # 5. Lambda Function URL (Public Endpoint with no IAM Auth, protected by our Secret Token header)
 resource "aws_lambda_function_url" "webhook_url" {
   function_name      = aws_lambda_function.webhook_lambda.function_name
-  authorization_type = "NONE" 
+  authorization_type = "NONE"
 }
 
 resource "aws_lambda_permission" "public_function_url" {
