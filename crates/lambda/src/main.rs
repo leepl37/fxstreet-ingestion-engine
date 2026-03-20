@@ -9,8 +9,12 @@ use tokio::time::Instant;
 
 #[derive(serde::Deserialize, Debug)]
 pub struct WebhookPayload {
+    #[serde(rename = "type")]
+    pub event_type: Option<String>,
     #[serde(rename = "eventDateId")]
-    pub event_date_id: String,
+    pub event_date_id: Option<String>,
+    #[serde(rename = "eventId")]
+    pub event_id: Option<String>,
 }
 
 struct AppState {
@@ -55,7 +59,23 @@ async fn function_handler(req: Request, state: Arc<AppState>) -> Result<Response
         }
     };
 
-    let event_date_id = payload.event_date_id;
+    let event_date_id = match payload.event_date_id {
+        Some(id) => id,
+        None => {
+            info!(
+                status = 202,
+                category = "input",
+                source = "webhook",
+                event_type = ?payload.event_type,
+                event_id = ?payload.event_id,
+                latency_ms = start.elapsed().as_millis(),
+                "Ignoring webhook event without eventDateId"
+            );
+            return Ok(Response::builder()
+                .status(202)
+                .body(Body::Text("Accepted: event type not handled by eventDate ingestion".into()))?);
+        }
+    };
 
     // 4. Fetch full event via FXStreet API (500 if DB/API error)
     let raw_event = match state.fxstreet_client.fetch_event_date_by_id(&event_date_id).await {
@@ -136,6 +156,6 @@ mod tests {
         let payload: WebhookPayload = serde_json::from_str(sample_json)
             .expect("Sample payload should parse perfectly");
         
-        assert_eq!(payload.event_date_id, "e93de8e7-fc33-4f11-925f-2ec8284fcdcf");
+        assert_eq!(payload.event_date_id.as_deref(), Some("e93de8e7-fc33-4f11-925f-2ec8284fcdcf"));
     }
 }

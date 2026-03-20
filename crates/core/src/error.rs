@@ -8,6 +8,7 @@ pub enum CoreError {
     Validation(String),
     Serialization(serde_json::Error),
     ExternalApi(String),
+    ExternalApiStatus { status: u16, message: String },
 }
 
 impl fmt::Display for CoreError {
@@ -19,6 +20,9 @@ impl fmt::Display for CoreError {
             CoreError::Validation(msg) => write!(f, "Validation error: {}", msg),
             CoreError::Serialization(err) => write!(f, "Serialization error: {}", err),
             CoreError::ExternalApi(msg) => write!(f, "External API error: {}", msg),
+            CoreError::ExternalApiStatus { status, message } => {
+                write!(f, "External API status {}: {}", status, message)
+            }
         }
     }
 }
@@ -42,5 +46,17 @@ impl From<reqwest::Error> for CoreError {
 impl From<serde_json::Error> for CoreError {
     fn from(err: serde_json::Error) -> Self {
         CoreError::Serialization(err)
+    }
+}
+
+impl CoreError {
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            // transport-level failures are usually transient
+            CoreError::Http(_) => true,
+            // explicit status-based policy
+            CoreError::ExternalApiStatus { status, .. } => *status == 429 || (500..=599).contains(status),
+            _ => false,
+        }
     }
 }

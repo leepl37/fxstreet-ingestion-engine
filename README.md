@@ -56,6 +56,19 @@ For real FXStreet calls, switch to:
 FXSTREET_MODE=real FXSTREET_BEARER_TOKEN="<token>" FXSTREET_API_BASE="https://calendar-api.fxstreet.com/en/api/v1"
 ```
 
+## Reliability Notes
+
+- HTTP timeout: FXStreet client uses a 15-second request timeout.
+- Retry policy: only retry transient failures (network error, 429, 5xx) with exponential backoff.
+- Non-retryable failures (e.g., 400/401/403/404) fail fast to avoid wasting runtime.
+- Error categories used in logs: `input`, `api`, `db`.
+
+## Idempotency Strategy
+
+- Deduplication key: `event_id + event_time`.
+- Webhook events can be re-delivered; duplicate records should be treated as expected behavior.
+- Current implementation keeps data model consistency and logs duplicates-friendly identifiers.
+
 ## Next Steps
 
 1. ~~Implement shared models and configuration in `crates/core`.~~ ✓

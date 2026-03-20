@@ -77,10 +77,14 @@ impl FxstreetClient {
                 let url = format!("{}/eventDates/{}", self.base_url.trim_end_matches('/'), event_date_id);
                 let res = self.http_client.get(url).bearer_auth(token).send().await?;
                 if !res.status().is_success() {
-                    return Err(CoreError::ExternalApi(format!(
-                        "FXStreet eventDates by id failed with status {}",
-                        res.status()
-                    )));
+                    let status = res.status().as_u16();
+                    let body = res.text().await.unwrap_or_default();
+                    let message = if body.is_empty() {
+                        "empty response body".to_string()
+                    } else {
+                        body.chars().take(240).collect()
+                    };
+                    return Err(CoreError::ExternalApiStatus { status, message });
                 }
                 Ok(res.json::<FxEventRaw>().await?)
             }
@@ -126,10 +130,14 @@ impl FxstreetClient {
                     .send()
                     .await?;
                 if !res.status().is_success() {
-                    return Err(CoreError::ExternalApi(format!(
-                        "FXStreet eventDates range failed with status {}",
-                        res.status()
-                    )));
+                    let status = res.status().as_u16();
+                    let body = res.text().await.unwrap_or_default();
+                    let message = if body.is_empty() {
+                        "empty response body".to_string()
+                    } else {
+                        body.chars().take(240).collect()
+                    };
+                    return Err(CoreError::ExternalApiStatus { status, message });
                 }
                 Ok(res.json::<Vec<FxEventRaw>>().await?)
             }
