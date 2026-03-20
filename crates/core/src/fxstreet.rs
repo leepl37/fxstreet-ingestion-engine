@@ -4,36 +4,15 @@ use reqwest::Client;
 use crate::error::CoreError;
 use crate::models::FxEventRaw;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FxstreetMode {
-    Mock,
-    Real,
-}
-
-impl FxstreetMode {
-    fn from_env(mode: &str) -> Result<Self, CoreError> {
-        match mode.to_lowercase().as_str() {
-            "mock" => Ok(Self::Mock),
-            "real" => Ok(Self::Real),
-            other => Err(CoreError::Config(format!(
-                "Invalid FXSTREET_MODE '{other}', expected 'mock' or 'real'"
-            ))),
-        }
-    }
-}
-
 pub struct FxstreetClient {
-    mode: FxstreetMode,
     base_url: String,
     bearer_token: Option<String>,
     http_client: Client,
+    is_mock: bool,
 }
 
 impl FxstreetClient {
     pub fn from_env() -> Result<Self, CoreError> {
-        let mode_raw = std::env::var("FXSTREET_MODE").unwrap_or_else(|_| "real".to_string());
-        let mode = FxstreetMode::from_env(&mode_raw)?;
-
         let base_url = std::env::var("FXSTREET_API_BASE")
             .unwrap_or_else(|_| "https://calendar-api.fxstreet.com/en/api/v1".to_string());
 
@@ -46,49 +25,44 @@ impl FxstreetClient {
             .build()?;
 
         Ok(Self {
-            mode,
             base_url,
             bearer_token,
             http_client,
+            is_mock: false,
         })
     }
 
     pub fn new_mock() -> Self {
         Self {
-            mode: FxstreetMode::Mock,
             base_url: "http://mock.local".to_string(),
             bearer_token: None,
             http_client: Client::new(),
+            is_mock: true,
         }
-    }
-
-    pub fn mode(&self) -> FxstreetMode {
-        self.mode
     }
 
     pub async fn fetch_event_date_by_id(&self, event_date_id: &str) -> Result<FxEventRaw, CoreError> {
-        match self.mode {
-            FxstreetMode::Mock => Ok(mock_event(event_date_id, Utc::now())),
-            FxstreetMode::Real => {
-                let token = self
-                    .bearer_token
-                    .as_deref()
-                    .ok_or_else(|| CoreError::Config("Missing FXSTREET_BEARER_TOKEN in real mode".to_string()))?;
-                let url = format!("{}/eventDates/{}", self.base_url.trim_end_matches('/'), event_date_id);
-                let res = self.http_client.get(url).bearer_auth(token).send().await?;
-                if !res.status().is_success() {
-                    let status = res.status().as_u16();
-                    let body = res.text().await.unwrap_or_default();
-                    let message = if body.is_empty() {
-                        "empty response body".to_string()
-                    } else {
-                        body.chars().take(240).collect()
-                    };
-                    return Err(CoreError::ExternalApiStatus { status, message });
-                }
-                Ok(res.json::<FxEventRaw>().await?)
-            }
+        if self.is_mock {
+            return Ok(mock_event(event_date_id, Utc::now()));
         }
+
+        let token = self
+            .bearer_token
+            .as_deref()
+            .ok_or_else(|| CoreError::Config("Missing FXSTREET_BEARER_TOKEN".to_string()))?;
+        let url = format!("{}/eventDates/{}", self.base_url.trim_end_matches('/'), event_date_id);
+        let res = self.http_client.get(url).bearer_auth(token).send().await?;
+        if !res.status().is_success() {
+            let status = res.status().as_u16();
+            let body = res.text().await.unwrap_or_default();
+            let message = if body.is_empty() {
+                "empty response body".to_string()
+            } else {
+                body.chars().take(240).collect()
+            };
+            return Err(CoreError::ExternalApiStatus { status, message });
+        }
+        Ok(res.json::<FxEventRaw>().await?)
     }
 
     pub async fn fetch_event_dates_range(
@@ -98,50 +72,47 @@ impl FxstreetClient {
         skip: usize,
         take: usize,
     ) -> Result<Vec<FxEventRaw>, CoreError> {
-        match self.mode {
-            FxstreetMode::Mock => {
-                if skip > 0 {
-                    return Ok(Vec::new());
-                }
-                let from_event = mock_event("mock-range-1", from);
-                let to_event = mock_event("mock-range-2", to);
-                let mut all = vec![from_event, to_event];
-                all.truncate(take);
-                Ok(all)
+        if self.is_mock {
+            if skip > 0 {
+                return Ok(Vec::new());
             }
-            FxstreetMode::Real => {
-                let token = self
-                    .bearer_token
-                    .as_deref()
-                    .ok_or_else(|| CoreError::Config("Missing FXSTREET_BEARER_TOKEN in real mode".to_string()))?;
-                let from_str = from.to_rfc3339_opts(SecondsFormat::Secs, true);
-                let to_str = to.to_rfc3339_opts(SecondsFormat::Secs, true);
-                let url = format!(
-                    "{}/eventDates/{}/{}",
-                    self.base_url.trim_end_matches('/'),
-                    from_str,
-                    to_str
-                );
-                let res = self
-                    .http_client
-                    .get(url)
-                    .query(&[("skip", skip), ("take", take)])
-                    .bearer_auth(token)
-                    .send()
-                    .await?;
-                if !res.status().is_success() {
-                    let status = res.status().as_u16();
-                    let body = res.text().await.unwrap_or_default();
-                    let message = if body.is_empty() {
-                        "empty response body".to_string()
-                    } else {
-                        body.chars().take(240).collect()
-                    };
-                    return Err(CoreError::ExternalApiStatus { status, message });
-                }
-                Ok(res.json::<Vec<FxEventRaw>>().await?)
-            }
+            let from_event = mock_event("mock-range-1", from);
+            let to_event = mock_event("mock-range-2", to);
+            let mut all = vec![from_event, to_event];
+            all.truncate(take);
+            return Ok(all);
         }
+
+        let token = self
+            .bearer_token
+            .as_deref()
+            .ok_or_else(|| CoreError::Config("Missing FXSTREET_BEARER_TOKEN".to_string()))?;
+        let from_str = from.to_rfc3339_opts(SecondsFormat::Secs, true);
+        let to_str = to.to_rfc3339_opts(SecondsFormat::Secs, true);
+        let url = format!(
+            "{}/eventDates/{}/{}",
+            self.base_url.trim_end_matches('/'),
+            from_str,
+            to_str
+        );
+        let res = self
+            .http_client
+            .get(url)
+            .query(&[("skip", skip), ("take", take)])
+            .bearer_auth(token)
+            .send()
+            .await?;
+        if !res.status().is_success() {
+            let status = res.status().as_u16();
+            let body = res.text().await.unwrap_or_default();
+            let message = if body.is_empty() {
+                "empty response body".to_string()
+            } else {
+                body.chars().take(240).collect()
+            };
+            return Err(CoreError::ExternalApiStatus { status, message });
+        }
+        Ok(res.json::<Vec<FxEventRaw>>().await?)
     }
 }
 

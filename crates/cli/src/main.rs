@@ -52,16 +52,28 @@ async fn main() -> Result<()> {
     info!("Page size: {}, Dry Run: {}", args.page_size, args.dry_run);
 
     let db_writer = QuestDbWriter::from_env().context("Failed to setup DB writer from environment variables")?;
-    let fxstreet_client = FxstreetClient::from_env().context("Failed to setup FXStreet client from environment variables")?;
 
-    // --test: insert a single dummy event and exit immediately
+    // --test: use a single dummy event and exit immediately.
+    // If --dry-run is also set, do not write to DB.
     if args.test {
         use orderx_core::fxstreet::FxstreetClient;
         let dummy_client = FxstreetClient::new_mock();
         let raw = dummy_client.fetch_event_date_by_id("cli-test-dummy").await
             .context("Failed to build dummy event")?;
         let event = EconomicEvent::from((raw, EventSource::Backfill));
-        db_writer.write_event(&event).await
+
+        if args.dry_run {
+            info!("[TEST][DRY-RUN] Built 1 dummy event; skipped QuestDB write");
+            println!("\n=== Test Mode (Dry Run) ===");
+            println!("dummy_events: 1");
+            println!("inserted: 0");
+            println!("===========================\n");
+            return Ok(());
+        }
+
+        db_writer
+            .write_event(&event)
+            .await
             .context("Failed to write dummy event to QuestDB")?;
         info!("[TEST] Inserted 1 dummy event into QuestDB successfully");
         println!("\n=== Test Mode ===");
@@ -70,6 +82,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let fxstreet_client = FxstreetClient::from_env().context("Failed to setup FXStreet client from environment variables")?;
     let mut stats = Stats::default();
 
     let mut skip = 0;

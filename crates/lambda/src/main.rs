@@ -1,6 +1,6 @@
 use lambda_http::{run, service_fn, Body, Error, Request, Response};
 use tracing::{info, error, instrument};
-use orderx_core::fxstreet::{FxstreetClient, FxstreetMode};
+use orderx_core::fxstreet::FxstreetClient;
 use orderx_core::models::{EconomicEvent, EventSource};
 use orderx_core::questdb::QuestDbWriter;
 use std::env;
@@ -162,10 +162,7 @@ async fn main() -> Result<(), Error> {
     let expected_token = env::var("WEBHOOK_SECRET_TOKEN").unwrap_or_default();
     let fxstreet_client = FxstreetClient::from_env()
         .expect("Failed to initialize FxstreetClient from environment");
-    info!(mode = ?fxstreet_client.mode(), "FXStreet client initialized");
-    if fxstreet_client.mode() == FxstreetMode::Mock {
-        info!("Running in FXSTREET_MODE=mock (no external token required)");
-    }
+    info!("FXStreet client initialized (real API mode by default)");
 
     let state = Arc::new(AppState {
         db_writer: writer,
