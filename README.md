@@ -62,4 +62,4 @@ FXSTREET_MODE=real FXSTREET_BEARER_TOKEN="<token>" FXSTREET_API_BASE="https://ca
 2. ~~Implement QuestDB writer and table bootstrap logic.~~ ✓
 3. ~~Implement webhook Lambda flow in `crates/lambda`.~~ ✓
 4. ~~Implement backfill CLI flow in `crates/cli`.~~ ✓
-5. Implement Terraform infrastructure in `infra/terraform`.
+5. ~~Implement Terraform infrastructure in `infra/terraform`.~~
