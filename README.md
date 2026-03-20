@@ -97,6 +97,9 @@ cargo lambda build --release --arm64 -p lambda  # build Lambda binary first
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: see terraform.tfvars.example for reference
+# Required secrets in terraform.tfvars:
+# webhook_secret_token  = "<webhook-shared-secret>"
+# fxstreet_bearer_token = "<fxstreet-bearer-token>"
 terraform init
 terraform apply
 terraform output   # prints questdb_public_ip and webhook_lambda_public_url
@@ -110,7 +113,10 @@ terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 - If local webhook returns `500`, first check missing env vars (`QUESTDB_HOST`, `QUESTDB_ILP_PORT`).
 - **Lambda test mode**: add `X-Test-Mode: true` header to any authenticated POST → inserts dummy event directly into QuestDB (no FXStreet API call needed).
 - **CLI test mode**: add `--test` flag → inserts single dummy event and exits immediately.
+- **Real path vs test fallback**: non-test requests use the real FXStreet API path; test mode exists only as a verification fallback when credentials/webhook delivery are unavailable.
 - Without `FXSTREET_BEARER_TOKEN`, non-test API calls will fail: Lambda returns `500`, CLI returns `Configuration error: Missing FXSTREET_BEARER_TOKEN`.
+- **Function URL note**: if direct external `curl` to Function URL returns `403` in your AWS account, validate webhook behavior with `aws lambda invoke` (handler logic verified).
+- **Networking trade-off**: current setup uses QuestDB public IP reachability for simplicity; production-hardening would place Lambda inside VPC and restrict QuestDB ingress to private CIDRs/security groups.
 
 ## Next Steps
 
