@@ -46,3 +46,15 @@ variable "ssh_key_name" {
   type        = string
   default     = ""
 }
+
+variable "lambda_alarm_actions" {
+  description = "Optional list of SNS topic ARNs for Lambda CloudWatch alarms."
+  type        = list(string)
+  default     = []
+}
+
+variable "admin_allowed_cidrs" {
+  description = "Allowed CIDR blocks for QuestDB web console (9000) and SSH (22)."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}

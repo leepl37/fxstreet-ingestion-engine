@@ -88,6 +88,46 @@ resource "aws_lambda_function" "webhook_lambda" {
   }
 }
 
+resource "aws_cloudwatch_metric_alarm" "webhook_lambda_errors" {
+  alarm_name          = "${var.project_name}-webhook-errors"
+  alarm_description   = "Alarm when webhook Lambda reports execution errors."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.webhook_lambda.function_name
+  }
+
+  alarm_actions = var.lambda_alarm_actions
+  ok_actions    = var.lambda_alarm_actions
+}
+
+resource "aws_cloudwatch_metric_alarm" "webhook_lambda_throttles" {
+  alarm_name          = "${var.project_name}-webhook-throttles"
+  alarm_description   = "Alarm when webhook Lambda is throttled."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Throttles"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.webhook_lambda.function_name
+  }
+
+  alarm_actions = var.lambda_alarm_actions
+  ok_actions    = var.lambda_alarm_actions
+}
+
 # 5. Lambda Function URL (Public Endpoint with no IAM Auth, protected by our Secret Token header)
 resource "aws_lambda_function_url" "webhook_url" {
   function_name      = aws_lambda_function.webhook_lambda.function_name

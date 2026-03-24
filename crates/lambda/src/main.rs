@@ -23,6 +23,23 @@ struct AppState {
     fxstreet_client: FxstreetClient,
 }
 
+fn failed_event_log_payload(event: &EconomicEvent) -> String {
+    let max_bytes = env::var("FAILED_EVENT_LOG_MAX_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(2048);
+
+    let serialized = serde_json::to_string(event).unwrap_or_else(|_| "{}".to_string());
+    if serialized.len() <= max_bytes {
+        return serialized;
+    }
+
+    let mut truncated = serialized.chars().take(max_bytes).collect::<String>();
+    truncated.push_str("...(truncated)");
+    truncated
+}
+
 #[instrument(skip(state, req))]
 async fn function_handler(req: Request, state: Arc<AppState>) -> Result<Response<Body>, Error> {
     let start = Instant::now();
@@ -78,7 +95,13 @@ async fn function_handler(req: Request, state: Arc<AppState>) -> Result<Response
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         let event = EconomicEvent::from((raw, EventSource::Webhook));
         if let Err(e) = state.db_writer.write_event(&event).await {
-            error!(category = "db", error = %e, "[TEST] QuestDB write failed");
+            let failed_event = failed_event_log_payload(&event);
+            error!(
+                category = "db",
+                error = %e,
+                failed_event = %failed_event,
+                "[TEST] QuestDB write failed; event persisted to structured logs for replay"
+            );
             return Ok(Response::builder()
                 .status(500)
                 .body(Body::Text("Internal Server Error".into()))?);
@@ -172,7 +195,16 @@ async fn function_handler(req: Request, state: Arc<AppState>) -> Result<Response
 
     if let Err(e) = state.db_writer.write_event(&economic_event).await {
         status_code = 500;
-        error!(status = status_code, category = "db", event_id = %event_date_id, error = %e, latency_ms = start.elapsed().as_millis(), "QuestDB write_event failure");
+        let failed_event = failed_event_log_payload(&economic_event);
+        error!(
+            status = status_code,
+            category = "db",
+            event_id = %event_date_id,
+            error = %e,
+            failed_event = %failed_event,
+            latency_ms = start.elapsed().as_millis(),
+            "QuestDB write_event failure; event persisted to structured logs for replay"
+        );
         return Ok(Response::builder()
             .status(status_code)
             .body(Body::Text("Internal Server Error".into()))?);

@@ -6,3 +6,5 @@ webhook_secret_token  = "my_super_secret_webhook_token_123!"
 fxstreet_bearer_token = ""
 ec2_instance_type     = "t3.micro"
 # ssh_key_name        = "my-macbook-key"
+# lambda_alarm_actions = ["arn:aws:sns:ap-northeast-2:123456789012:ops-alerts"]
+admin_allowed_cidrs   = ["203.0.113.10/32"] # Replace with your public IP/CIDR
