@@ -30,7 +30,7 @@ project-root/
 ## Prerequisites
 
 - Rust toolchain
-- `cargo-lambda` (for local Lambda testing)
+- `cargo-lambda` (for local Lambda testing and Terraform-driven Lambda build)
 - Reachable QuestDB instance (`<QUESTDB_HOST>:9009`)
 - (Optional, real mode) FXStreet bearer token
 
@@ -107,7 +107,6 @@ cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page
 ## Terraform Deploy (AWS)
 
 ```bash
-cargo lambda build --release --arm64 -p lambda  # build Lambda binary first
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: see terraform.tfvars.example for reference
@@ -119,13 +118,22 @@ terraform apply
 terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 ```
 
+Notes:
+- `terraform apply` now triggers `cargo lambda build --release --arm64 -p lambda` automatically via `local-exec`.
+- Your machine must have `cargo-lambda` installed and available in `PATH`.
+- To run with `terraform apply` only (without repeated `-var` flags), keep required values in local `terraform.tfvars`.
+- Lambda packaging avoids plan-time archive errors by building and zipping during apply via `null_resource` local-exec.
+
 ## Notes
 
 - Retry policy: transient failures only (`network`, `429`, `5xx`) with backoff; fail fast on non-retryable errors (`400/401/403/404`).
+- QuestDB write path now retries transient TCP failures with exponential backoff (`QUESTDB_WRITE_MAX_RETRIES`, `QUESTDB_WRITE_RETRY_BASE_MS`).
+- Backfill CLI also runs schema bootstrap (`CREATE TABLE IF NOT EXISTS`) before insertion.
 - Logging categories: `input`, `api`, `db`.
 - Real path vs test fallback: non-test requests use the real FXStreet API path; test mode exists as a verification fallback.
 - Function URL status: external webhook calls to Lambda Function URL are validated (`HTTP 200` in test mode).
 - Networking trade-off: current setup uses QuestDB public IP reachability for simplicity; production-hardening would place Lambda inside VPC and restrict QuestDB ingress to private CIDRs/security groups.
+- Secret handling trade-off: credentials are passed through Terraform variables into Lambda environment variables for simplicity. Production-hardening should move secrets to AWS Secrets Manager (or SSM SecureString retrieval in runtime) and remove plaintext handling from operator workflows.
 
 ## Verification Results
 

@@ -42,24 +42,39 @@ resource "aws_iam_role_policy" "lambda_ssm_access" {
   policy = data.aws_iam_policy_document.lambda_ssm.json
 }
 
-# 3. Create the Deployment Package (zip file)
-# Note: Users MUST run `cargo lambda build --release --arm64` before terraform apply.
-data "archive_file" "lambda_zip" {
-  type        = "zip"
-  source_file = "${path.module}/../../target/lambda/lambda/bootstrap"
-  output_path = "${path.module}/lambda.zip"
+# 3. Build Lambda binary during terraform apply
+locals {
+  # Hash only source inputs so code changes trigger rebuild/update deterministically.
+  lambda_source_files = concat(
+    [for f in fileset("${path.module}/../../crates/lambda", "**") : "crates/lambda/${f}"],
+    [for f in fileset("${path.module}/../../crates/core", "**") : "crates/core/${f}"],
+    ["Cargo.toml", "Cargo.lock"]
+  )
+  lambda_source_hash = sha1(join("", [for f in local.lambda_source_files : filesha1("${path.module}/../../${f}")]))
+}
+
+resource "null_resource" "build_lambda_binary" {
+  triggers = {
+    source_hash = local.lambda_source_hash
+  }
+
+  provisioner "local-exec" {
+    # Build and package at apply-time to avoid plan-time missing bootstrap errors.
+    command = "cd \"${path.module}/../..\" && cargo lambda build --release --arm64 -p lambda && cd \"${path.module}\" && zip -j -q lambda.zip \"${path.module}/../../target/lambda/lambda/bootstrap\""
+  }
 }
 
 # 4. Lambda Function deployment
 resource "aws_lambda_function" "webhook_lambda" {
-  filename         = data.archive_file.lambda_zip.output_path
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  filename         = "${path.module}/lambda.zip"
+  source_code_hash = base64sha256(local.lambda_source_hash)
   function_name    = "${var.project_name}-webhook"
   role             = aws_iam_role.lambda_role.arn
   handler          = "bootstrap"       # Required for provided runtime
   runtime          = "provided.al2023" # Custom Rust runtime built into AL2023
   architectures    = ["arm64"]
   timeout          = 30
+  depends_on       = [null_resource.build_lambda_binary]
 
   environment {
     variables = {

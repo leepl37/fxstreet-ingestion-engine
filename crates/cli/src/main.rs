@@ -57,6 +57,10 @@ async fn main() -> Result<()> {
 
     let db_writer = QuestDbWriter::from_env()
         .context("Failed to setup DB writer from environment variables")?;
+    db_writer
+        .ensure_table_exists()
+        .await
+        .context("Failed to ensure QuestDB table exists before backfill")?;
 
     // --test: use a single dummy event and exit immediately.
     // If --dry-run is also set, do not write to DB.

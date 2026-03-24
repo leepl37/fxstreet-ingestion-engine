@@ -4,6 +4,7 @@ use reqwest::Client;
 use std::env;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use tokio::time::{sleep, Duration};
 
 pub struct QuestDbWriter {
     host: String,
@@ -79,20 +80,47 @@ impl QuestDbWriter {
             payload.push('\n');
         }
 
-        let addr = format!("{}:{}", self.host, self.ilp_port);
-        let mut stream = TcpStream::connect(&addr)
-            .await
-            .map_err(|e| CoreError::QuestDb(format!("TCP connection failed: {}", e)))?;
-        stream
-            .write_all(payload.as_bytes())
-            .await
-            .map_err(|e| CoreError::QuestDb(format!("TCP write failed: {}", e)))?;
-
-        Ok(())
+        self.write_ilp_with_retry(&payload).await
     }
 
     pub async fn write_event(&self, event: &EconomicEvent) -> Result<(), CoreError> {
         self.write_batch(std::slice::from_ref(event)).await
+    }
+
+    async fn write_ilp_with_retry(&self, payload: &str) -> Result<(), CoreError> {
+        let max_retries: u32 = env::var("QUESTDB_WRITE_MAX_RETRIES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3);
+        let base_backoff_ms: u64 = env::var("QUESTDB_WRITE_RETRY_BASE_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(200);
+
+        let addr = format!("{}:{}", self.host, self.ilp_port);
+        let mut last_error: Option<CoreError> = None;
+
+        for attempt in 0..=max_retries {
+            match TcpStream::connect(&addr).await {
+                Ok(mut stream) => match stream.write_all(payload.as_bytes()).await {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        last_error = Some(CoreError::QuestDb(format!("TCP write failed: {}", e)));
+                    }
+                },
+                Err(e) => {
+                    last_error = Some(CoreError::QuestDb(format!("TCP connection failed: {}", e)));
+                }
+            }
+
+            if attempt < max_retries {
+                let backoff = base_backoff_ms.saturating_mul(2_u64.pow(attempt));
+                sleep(Duration::from_millis(backoff)).await;
+            }
+        }
+
+        Err(last_error
+            .unwrap_or_else(|| CoreError::QuestDb("Unknown ILP write failure".to_string())))
     }
 }
 

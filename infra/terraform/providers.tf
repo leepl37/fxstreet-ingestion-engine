@@ -6,9 +6,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.4"
+    # Used by null_resource local-exec (Lambda build/package step).
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
     }
   }
 }
