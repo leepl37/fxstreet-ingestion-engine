@@ -44,6 +44,17 @@ pub enum EventSource {
     Backfill,
 }
 
+impl EventSource {
+    /// Stable tag string for QuestDB ILP `source` column (matches `serde` lowercase names).
+    #[must_use]
+    pub const fn as_ilp_tag(self) -> &'static str {
+        match self {
+            EventSource::Webhook => "webhook",
+            EventSource::Backfill => "backfill",
+        }
+    }
+}
+
 /// Internal standard model for storage (QuestDB).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EconomicEvent {
@@ -120,6 +131,12 @@ mod tests {
         let raw = sample_raw();
         let event = EconomicEvent::from_raw(raw, EventSource::Backfill);
         assert_eq!(event.source, EventSource::Backfill);
+    }
+
+    #[test]
+    fn event_source_ilp_tags_match_serde_lowercase() {
+        assert_eq!(EventSource::Webhook.as_ilp_tag(), "webhook");
+        assert_eq!(EventSource::Backfill.as_ilp_tag(), "backfill");
     }
 
     #[test]

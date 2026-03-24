@@ -126,11 +126,10 @@ impl QuestDbWriter {
 
 pub fn to_ilp_line(event: &EconomicEvent) -> String {
     // InfluxDB Line Protocol (ILP) formatting
-    let source_str = format!("{:?}", event.source).to_lowercase();
     let mut line = format!(
         "economic_events,event_id={},source={}",
         escape_tag(&event.event_id),
-        escape_tag(&source_str)
+        escape_tag(event.source.as_ilp_tag())
     );
 
     if let Some(ref c) = event.country {
