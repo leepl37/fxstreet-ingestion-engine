@@ -249,6 +249,17 @@ fn validate_date_range(from: DateTime<Utc>, to: DateTime<Utc>) -> Result<()> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use orderx_core::questdb::QuestDbWriter;
+
+    fn sample_args(page_size: usize, dry_run: bool) -> Args {
+        Args {
+            from: Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap(),
+            to: Utc.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap(),
+            page_size,
+            dry_run,
+            test: false,
+        }
+    }
 
     #[test]
     fn accepts_valid_date_range() {
@@ -264,5 +275,83 @@ mod tests {
         let to = Utc.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap();
         let result = validate_date_range(from, to);
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn fetch_page_with_retry_returns_mock_first_page() {
+        let args = sample_args(10, true);
+        let client = FxstreetClient::new_mock();
+        let mut stats = Stats::default();
+
+        let result = fetch_page_with_retry(&client, &args, 0, 0, &mut stats)
+            .await
+            .expect("mock fetch should succeed");
+
+        let events = result.expect("first mock page should return events");
+        assert_eq!(events.len(), 2);
+        assert_eq!(stats.retried, 0);
+    }
+
+    #[tokio::test]
+    async fn fetch_page_with_retry_returns_empty_for_later_mock_page() {
+        let args = sample_args(10, true);
+        let client = FxstreetClient::new_mock();
+        let mut stats = Stats::default();
+
+        let result = fetch_page_with_retry(&client, &args, 10, 0, &mut stats)
+            .await
+            .expect("mock fetch should succeed");
+
+        let events = result.expect("request itself should be successful");
+        assert!(events.is_empty());
+        assert_eq!(stats.retried, 0);
+    }
+
+    #[tokio::test]
+    async fn process_page_dry_run_updates_fetched_only() {
+        let client = FxstreetClient::new_mock();
+        let raw_events = client
+            .fetch_event_dates_range(
+                Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap(),
+                Utc.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap(),
+                0,
+                10,
+            )
+            .await
+            .expect("mock range fetch should succeed");
+        let db_writer = QuestDbWriter::from_env().expect("db writer should be creatable");
+        let mut stats = Stats::default();
+
+        let count = process_page(raw_events, &db_writer, true, &mut stats).await;
+
+        assert_eq!(count, 2);
+        assert_eq!(stats.fetched, 2);
+        assert_eq!(stats.inserted, 0);
+        assert_eq!(stats.failed, 0);
+    }
+
+    #[tokio::test]
+    async fn process_page_write_failure_increments_failed() {
+        std::env::set_var("QUESTDB_WRITE_MAX_RETRIES", "0");
+
+        let client = FxstreetClient::new_mock();
+        let raw_events = client
+            .fetch_event_dates_range(
+                Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap(),
+                Utc.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap(),
+                0,
+                10,
+            )
+            .await
+            .expect("mock range fetch should succeed");
+        let db_writer = QuestDbWriter::from_env().expect("db writer should be creatable");
+        let mut stats = Stats::default();
+
+        let count = process_page(raw_events, &db_writer, false, &mut stats).await;
+
+        assert_eq!(count, 2);
+        assert_eq!(stats.fetched, 2);
+        assert_eq!(stats.inserted, 0);
+        assert_eq!(stats.failed, 2);
     }
 }
