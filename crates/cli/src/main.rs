@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use orderx_core::fxstreet::FxstreetClient;
-use orderx_core::models::{EconomicEvent, EventSource};
+use orderx_core::models::{EconomicEvent, EventSource, FxEventRaw};
 use orderx_core::questdb::QuestDbWriter;
 use tokio::time::{sleep, Duration, Instant};
 use tracing::{error, info, warn};
@@ -43,6 +43,8 @@ struct Stats {
     retried: usize,
 }
 
+const MAX_RETRIES: usize = 3;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -65,123 +67,76 @@ async fn main() -> Result<()> {
     // --test: use a single dummy event and exit immediately.
     // If --dry-run is also set, do not write to DB.
     if args.test {
-        use orderx_core::fxstreet::FxstreetClient;
-        let dummy_client = FxstreetClient::new_mock();
-        let raw = dummy_client
-            .fetch_event_date_by_id("cli-test-dummy")
-            .await
-            .context("Failed to build dummy event")?;
-        let event = EconomicEvent::from((raw, EventSource::Backfill));
-
-        if args.dry_run {
-            info!("[TEST][DRY-RUN] Built 1 dummy event; skipped QuestDB write");
-            println!("\n=== Test Mode (Dry Run) ===");
-            println!("dummy_events: 1");
-            println!("inserted: 0");
-            println!("===========================\n");
-            return Ok(());
-        }
-
-        db_writer
-            .write_event(&event)
-            .await
-            .context("Failed to write dummy event to QuestDB")?;
-        info!("[TEST] Inserted 1 dummy event into QuestDB successfully");
-        println!("\n=== Test Mode ===");
-        println!("inserted: 1 dummy event");
-        println!("==================");
-        return Ok(());
+        return run_test_mode(&db_writer, args.dry_run).await;
     }
 
     let fxstreet_client = FxstreetClient::from_env()
         .context("Failed to setup FXStreet client from environment variables")?;
-    let mut stats = Stats::default();
+    let stats = run_backfill(&args, &fxstreet_client, &db_writer).await?;
+    let elapsed = start_time.elapsed().as_millis();
+    print_summary(&stats, elapsed);
 
+    Ok(())
+}
+
+async fn run_test_mode(db_writer: &QuestDbWriter, dry_run: bool) -> Result<()> {
+    let dummy_client = FxstreetClient::new_mock();
+    let raw = dummy_client
+        .fetch_event_date_by_id("cli-test-dummy")
+        .await
+        .context("Failed to build dummy event")?;
+    let event = EconomicEvent::from((raw, EventSource::Backfill));
+
+    if dry_run {
+        info!("[TEST][DRY-RUN] Built 1 dummy event; skipped QuestDB write");
+        println!("\n=== Test Mode (Dry Run) ===");
+        println!("dummy_events: 1");
+        println!("inserted: 0");
+        println!("===========================\n");
+        return Ok(());
+    }
+
+    db_writer
+        .write_event(&event)
+        .await
+        .context("Failed to write dummy event to QuestDB")?;
+    info!("[TEST] Inserted 1 dummy event into QuestDB successfully");
+    println!("\n=== Test Mode ===");
+    println!("inserted: 1 dummy event");
+    println!("==================");
+    Ok(())
+}
+
+async fn run_backfill(
+    args: &Args,
+    fxstreet_client: &FxstreetClient,
+    db_writer: &QuestDbWriter,
+) -> Result<Stats> {
+    let mut stats = Stats::default();
     let mut skip = 0;
-    let max_retries = 3;
 
     loop {
-        let mut attempt = 0;
-        let mut success = false;
-        let mut raw_events = Vec::new();
+        let maybe_raw_events =
+            fetch_page_with_retry(fxstreet_client, args, skip, MAX_RETRIES, &mut stats).await?;
 
-        while attempt <= max_retries {
-            info!(
-                "Fetching skip={}, attempt {}/{}",
-                skip, attempt, max_retries
-            );
-            match fxstreet_client
-                .fetch_event_dates_range(args.from, args.to, skip, args.page_size)
-                .await
-            {
-                Ok(events) => {
-                    raw_events = events;
-                    success = true;
-                    break;
-                }
-                Err(e) => {
-                    if e.is_retryable() && attempt < max_retries {
-                        stats.retried += 1;
-                        let backoff_secs = 2u64.pow(attempt as u32);
-                        warn!(
-                            "Retryable API error: {}. Retrying in {} seconds (Attempt {}/{})",
-                            e,
-                            backoff_secs,
-                            attempt + 1,
-                            max_retries
-                        );
-                        sleep(Duration::from_secs(backoff_secs)).await;
-                        attempt += 1;
-                    } else if e.is_retryable() {
-                        error!("Max retries reached for retryable error: {}", e);
-                        stats.failed += args.page_size;
-                        break;
-                    } else {
-                        return Err(anyhow::anyhow!("Non-retryable API error: {}", e));
-                    }
-                }
+        let raw_events = match maybe_raw_events {
+            Some(events) => events,
+            None => {
+                // If one page fails after retries, skip it and continue salvage.
+                stats.failed += args.page_size;
+                skip += args.page_size;
+                continue;
             }
-        }
-
-        if !success && attempt > max_retries {
-            error!(
-                "Max retries reached for block starting at skip={}. Skipping this page.",
-                skip
-            );
-            // Even if one page fails, we can continue to the next one to salvage the rest of the backfill
-            stats.failed += args.page_size;
-        }
+        };
 
         if raw_events.is_empty() {
             info!("No events fetched on this page. Finished pagination.");
             break;
         }
 
-        let count = raw_events.len();
-        stats.fetched += count;
+        let count = process_page(raw_events, db_writer, args.dry_run, &mut stats).await;
 
-        // Transform and Insert
-        if !args.dry_run {
-            let economic_events: Vec<EconomicEvent> = raw_events
-                .into_iter()
-                .map(|r| EconomicEvent::from((r, EventSource::Backfill)))
-                .collect();
-
-            if let Err(e) = db_writer.write_batch(&economic_events).await {
-                error!("Failed to write batch to QuestDB: {}", e);
-                stats.failed += count;
-            } else {
-                stats.inserted += count;
-                info!("Successfully inserted {} events into QuestDB", count);
-            }
-        } else {
-            info!(
-                "[DRY RUN] Would have transformed and inserted {} events",
-                count
-            );
-        }
-
-        // If returned count is less than requested page size, it means this was the last page
+        // If returned count is less than requested page size, it means this was the last page.
         if count < args.page_size {
             break;
         }
@@ -189,18 +144,96 @@ async fn main() -> Result<()> {
         skip += args.page_size;
     }
 
-    let elapsed = start_time.elapsed().as_millis();
+    Ok(stats)
+}
 
-    // Print the final required output
+async fn fetch_page_with_retry(
+    fxstreet_client: &FxstreetClient,
+    args: &Args,
+    skip: usize,
+    max_retries: usize,
+    stats: &mut Stats,
+) -> Result<Option<Vec<FxEventRaw>>> {
+    for attempt in 0..=max_retries {
+        info!(
+            "Fetching skip={}, attempt {}/{}",
+            skip,
+            attempt + 1,
+            max_retries + 1
+        );
+
+        match fxstreet_client
+            .fetch_event_dates_range(args.from, args.to, skip, args.page_size)
+            .await
+        {
+            Ok(events) => return Ok(Some(events)),
+            Err(e) if e.is_retryable() && attempt < max_retries => {
+                stats.retried += 1;
+                let backoff_secs = 2u64.pow(attempt as u32);
+                warn!(
+                    "Retryable API error: {}. Retrying in {} seconds (Attempt {}/{})",
+                    e,
+                    backoff_secs,
+                    attempt + 1,
+                    max_retries + 1
+                );
+                sleep(Duration::from_secs(backoff_secs)).await;
+            }
+            Err(e) if e.is_retryable() => {
+                error!(
+                    "Max retries reached for block starting at skip={}. Skipping this page. Error: {}",
+                    skip, e
+                );
+                return Ok(None);
+            }
+            Err(e) => return Err(anyhow::anyhow!("Non-retryable API error: {}", e)),
+        }
+    }
+
+    Ok(None)
+}
+
+async fn process_page(
+    raw_events: Vec<FxEventRaw>,
+    db_writer: &QuestDbWriter,
+    dry_run: bool,
+    stats: &mut Stats,
+) -> usize {
+    let count = raw_events.len();
+    stats.fetched += count;
+
+    if dry_run {
+        info!(
+            "[DRY RUN] Would have transformed and inserted {} events",
+            count
+        );
+        return count;
+    }
+
+    let economic_events: Vec<EconomicEvent> = raw_events
+        .into_iter()
+        .map(|raw| EconomicEvent::from((raw, EventSource::Backfill)))
+        .collect();
+
+    if let Err(e) = db_writer.write_batch(&economic_events).await {
+        error!("Failed to write batch to QuestDB: {}", e);
+        stats.failed += count;
+    } else {
+        stats.inserted += count;
+        info!("Successfully inserted {} events into QuestDB", count);
+    }
+
+    count
+}
+
+fn print_summary(stats: &Stats, elapsed_ms: u128) {
     println!("\n=== Backfill Summary ===");
     println!("fetched: {}", stats.fetched);
     println!("inserted: {}", stats.inserted);
     println!("failed: {}", stats.failed);
     println!("retried: {}", stats.retried);
-    println!("elapsed_ms: {}", elapsed);
+    println!("elapsed_ms: {}", elapsed_ms);
     println!("========================\n");
-
-    Ok(())
 }
 
 fn validate_date_range(from: DateTime<Utc>, to: DateTime<Utc>) -> Result<()> {
