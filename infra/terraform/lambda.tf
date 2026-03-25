@@ -6,6 +6,13 @@ resource "aws_ssm_parameter" "webhook_secret" {
   value       = var.webhook_secret_token
 }
 
+resource "aws_ssm_parameter" "fxstreet_bearer_token" {
+  name        = "/${var.project_name}/${var.environment}/fxstreet_bearer_token"
+  description = "Bearer token for FXStreet Calendar API"
+  type        = "SecureString"
+  value       = var.fxstreet_bearer_token
+}
+
 # 2. IAM Role for Lambda
 data "aws_iam_policy_document" "lambda_assume_role" {
   statement {
@@ -31,8 +38,11 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
 # Give Lambda access to read SSM parameters (if needed by code dynamically)
 data "aws_iam_policy_document" "lambda_ssm" {
   statement {
-    actions   = ["ssm:GetParameter"]
-    resources = [aws_ssm_parameter.webhook_secret.arn]
+    actions = ["ssm:GetParameter"]
+    resources = [
+      aws_ssm_parameter.webhook_secret.arn,
+      aws_ssm_parameter.fxstreet_bearer_token.arn
+    ]
   }
 }
 
@@ -42,35 +52,90 @@ resource "aws_iam_role_policy" "lambda_ssm_access" {
   policy = data.aws_iam_policy_document.lambda_ssm.json
 }
 
-# 3. Create the Deployment Package (zip file)
-# Note: Users MUST run `cargo lambda build --release --arm64` before terraform apply.
-data "archive_file" "lambda_zip" {
-  type        = "zip"
-  source_file = "${path.module}/../../target/lambda/lambda/bootstrap"
-  output_path = "${path.module}/lambda.zip"
+# 3. Build Lambda binary during terraform apply
+locals {
+  # Hash only source inputs so code changes trigger rebuild/update deterministically.
+  lambda_source_files = concat(
+    [for f in fileset("${path.module}/../../crates/lambda", "**") : "crates/lambda/${f}"],
+    [for f in fileset("${path.module}/../../crates/core", "**") : "crates/core/${f}"],
+    ["Cargo.toml", "Cargo.lock"]
+  )
+  lambda_source_hash = sha1(join("", [for f in local.lambda_source_files : filesha1("${path.module}/../../${f}")]))
+}
+
+resource "null_resource" "build_lambda_binary" {
+  triggers = {
+    source_hash = local.lambda_source_hash
+  }
+
+  provisioner "local-exec" {
+    # Build and package at apply-time to avoid plan-time missing bootstrap errors.
+    command = "cd \"${path.module}/../..\" && cargo lambda build --release --arm64 -p lambda && cd \"${path.module}\" && zip -j -q lambda.zip \"${path.module}/../../target/lambda/lambda/bootstrap\""
+  }
 }
 
 # 4. Lambda Function deployment
 resource "aws_lambda_function" "webhook_lambda" {
-  filename         = data.archive_file.lambda_zip.output_path
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  filename         = "${path.module}/lambda.zip"
+  source_code_hash = base64sha256(local.lambda_source_hash)
   function_name    = "${var.project_name}-webhook"
   role             = aws_iam_role.lambda_role.arn
   handler          = "bootstrap"       # Required for provided runtime
   runtime          = "provided.al2023" # Custom Rust runtime built into AL2023
   architectures    = ["arm64"]
   timeout          = 30
+  depends_on       = [null_resource.build_lambda_binary]
 
   environment {
     variables = {
-      RUST_LOG              = "info"
-      FXSTREET_API_BASE     = "https://calendar-api.fxstreet.com/en/api/v1"
-      FXSTREET_BEARER_TOKEN = var.fxstreet_bearer_token
-      QUESTDB_HOST          = aws_instance.questdb.public_ip
-      QUESTDB_ILP_PORT      = "9009"
-      WEBHOOK_SECRET_TOKEN  = var.webhook_secret_token
+      RUST_LOG                    = "info"
+      FXSTREET_API_BASE           = "https://calendar-api.fxstreet.com/en/api/v1"
+      FXSTREET_BEARER_TOKEN_PARAM = aws_ssm_parameter.fxstreet_bearer_token.name
+      QUESTDB_HOST                = aws_instance.questdb.public_ip
+      QUESTDB_ILP_PORT            = "9009"
+      WEBHOOK_SECRET_TOKEN_PARAM  = aws_ssm_parameter.webhook_secret.name
     }
   }
+}
+
+resource "aws_cloudwatch_metric_alarm" "webhook_lambda_errors" {
+  alarm_name          = "${var.project_name}-webhook-errors"
+  alarm_description   = "Alarm when webhook Lambda reports execution errors."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.webhook_lambda.function_name
+  }
+
+  alarm_actions = var.lambda_alarm_actions
+  ok_actions    = var.lambda_alarm_actions
+}
+
+resource "aws_cloudwatch_metric_alarm" "webhook_lambda_throttles" {
+  alarm_name          = "${var.project_name}-webhook-throttles"
+  alarm_description   = "Alarm when webhook Lambda is throttled."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Throttles"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.webhook_lambda.function_name
+  }
+
+  alarm_actions = var.lambda_alarm_actions
+  ok_actions    = var.lambda_alarm_actions
 }
 
 # 5. Lambda Function URL (Public Endpoint with no IAM Auth, protected by our Secret Token header)

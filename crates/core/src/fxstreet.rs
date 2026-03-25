@@ -1,8 +1,24 @@
 use chrono::{DateTime, SecondsFormat, Utc};
 use reqwest::Client;
+use serde::de::DeserializeOwned;
 
 use crate::error::CoreError;
 use crate::models::FxEventRaw;
+
+/// Maps HTTP status + body snippet for failures; otherwise parses JSON from a successful FXStreet response.
+async fn parse_fxstreet_json<T: DeserializeOwned>(res: reqwest::Response) -> Result<T, CoreError> {
+    if !res.status().is_success() {
+        let status = res.status().as_u16();
+        let body = res.text().await.unwrap_or_default();
+        let message = if body.is_empty() {
+            "empty response body".to_string()
+        } else {
+            body.chars().take(240).collect()
+        };
+        return Err(CoreError::ExternalApiStatus { status, message });
+    }
+    Ok(res.json::<T>().await?)
+}
 
 pub struct FxstreetClient {
     base_url: String,
@@ -59,17 +75,7 @@ impl FxstreetClient {
             event_date_id
         );
         let res = self.http_client.get(url).bearer_auth(token).send().await?;
-        if !res.status().is_success() {
-            let status = res.status().as_u16();
-            let body = res.text().await.unwrap_or_default();
-            let message = if body.is_empty() {
-                "empty response body".to_string()
-            } else {
-                body.chars().take(240).collect()
-            };
-            return Err(CoreError::ExternalApiStatus { status, message });
-        }
-        Ok(res.json::<FxEventRaw>().await?)
+        parse_fxstreet_json::<FxEventRaw>(res).await
     }
 
     pub async fn fetch_event_dates_range(
@@ -109,17 +115,7 @@ impl FxstreetClient {
             .bearer_auth(token)
             .send()
             .await?;
-        if !res.status().is_success() {
-            let status = res.status().as_u16();
-            let body = res.text().await.unwrap_or_default();
-            let message = if body.is_empty() {
-                "empty response body".to_string()
-            } else {
-                body.chars().take(240).collect()
-            };
-            return Err(CoreError::ExternalApiStatus { status, message });
-        }
-        Ok(res.json::<Vec<FxEventRaw>>().await?)
+        parse_fxstreet_json::<Vec<FxEventRaw>>(res).await
     }
 }
 

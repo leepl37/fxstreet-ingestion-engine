@@ -30,7 +30,7 @@ project-root/
 ## Prerequisites
 
 - Rust toolchain
-- `cargo-lambda` (for local Lambda testing)
+- `cargo-lambda` (for local Lambda testing and Terraform-driven Lambda build)
 - Reachable QuestDB instance (`<QUESTDB_HOST>:9009`)
 - (Optional, real mode) FXStreet bearer token
 
@@ -92,7 +92,7 @@ curl -i -X POST <webhook_lambda_public_url> \
   -d '{"eventDateId":"<real-event-date-id>"}'
 ```
 
-Expected result: `HTTP 200` and body `OK` (if token is valid and `FXSTREET_BEARER_TOKEN` is configured).
+Expected result: `HTTP 200` and body `OK` (if token is valid and FXStreet bearer secret is configured in SSM).
 
 ### 2) Backfill CLI (real API)
 
@@ -107,7 +107,6 @@ cargo run -p cli -- --from 2026-03-01T00:00:00Z --to 2026-03-10T00:00:00Z --page
 ## Terraform Deploy (AWS)
 
 ```bash
-cargo lambda build --release --arm64 -p lambda  # build Lambda binary first
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: see terraform.tfvars.example for reference
@@ -119,13 +118,28 @@ terraform apply
 terraform output   # prints questdb_public_ip and webhook_lambda_public_url
 ```
 
+Notes:
+- `terraform apply` now triggers `cargo lambda build --release --arm64 -p lambda` automatically via `local-exec`.
+- Your machine must have `cargo-lambda` installed and available in `PATH`.
+- To run with `terraform apply` only (without repeated `-var` flags), keep required values in local `terraform.tfvars`.
+- Lambda packaging avoids plan-time archive errors by building and zipping during apply via `null_resource` local-exec.
+- Optional alerting: set `lambda_alarm_actions` in `terraform.tfvars` with SNS topic ARNs to receive Lambda error/throttle alarms.
+- Restrict `admin_allowed_cidrs` in `terraform.tfvars` (recommended: your public IP `/32`) to limit QuestDB web console (`9000`) and SSH (`22`) exposure.
+- Lambda runtime secrets are loaded from AWS SSM Parameter Store (`WEBHOOK_SECRET_TOKEN_PARAM`, `FXSTREET_BEARER_TOKEN_PARAM`) and decrypted on startup.
+- Local/dev fallback still supports direct env vars (`WEBHOOK_SECRET_TOKEN`, `FXSTREET_BEARER_TOKEN`) when parameter names are not provided.
+
 ## Notes
 
 - Retry policy: transient failures only (`network`, `429`, `5xx`) with backoff; fail fast on non-retryable errors (`400/401/403/404`).
+- QuestDB write path now retries transient TCP failures with exponential backoff (`QUESTDB_WRITE_MAX_RETRIES`, `QUESTDB_WRITE_RETRY_BASE_MS`).
+- Backfill CLI also runs schema bootstrap (`CREATE TABLE IF NOT EXISTS`) before insertion.
+- DB write hard failure path now keeps failed event payloads in structured Lambda logs (`failed_event`) for replay workflows.
 - Logging categories: `input`, `api`, `db`.
+- CloudWatch alarms are provisioned for Lambda `Errors` and `Throttles` metrics.
 - Real path vs test fallback: non-test requests use the real FXStreet API path; test mode exists as a verification fallback.
 - Function URL status: external webhook calls to Lambda Function URL are validated (`HTTP 200` in test mode).
-- Networking trade-off: current setup uses QuestDB public IP reachability for simplicity; production-hardening would place Lambda inside VPC and restrict QuestDB ingress to private CIDRs/security groups.
+- Networking trade-off: current setup uses QuestDB public IP reachability for simplicity. Admin ports (`9000`, `22`) are now CIDR-restricted through `admin_allowed_cidrs`; ILP ingestion port (`9009`) remains publicly reachable for Lambda connectivity in this phase.
+- Secret handling: Lambda loads credentials from SSM SecureString parameters at runtime instead of passing plaintext secret values into Lambda environment variables.
 
 ## Verification Results
 
