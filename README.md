@@ -92,7 +92,7 @@ curl -i -X POST <webhook_lambda_public_url> \
   -d '{"eventDateId":"<real-event-date-id>"}'
 ```
 
-Expected result: `HTTP 200` and body `OK` (if token is valid and `FXSTREET_BEARER_TOKEN` is configured).
+Expected result: `HTTP 200` and body `OK` (if token is valid and FXStreet bearer secret is configured in SSM).
 
 ### 2) Backfill CLI (real API)
 
@@ -125,6 +125,8 @@ Notes:
 - Lambda packaging avoids plan-time archive errors by building and zipping during apply via `null_resource` local-exec.
 - Optional alerting: set `lambda_alarm_actions` in `terraform.tfvars` with SNS topic ARNs to receive Lambda error/throttle alarms.
 - Restrict `admin_allowed_cidrs` in `terraform.tfvars` (recommended: your public IP `/32`) to limit QuestDB web console (`9000`) and SSH (`22`) exposure.
+- Lambda runtime secrets are loaded from AWS SSM Parameter Store (`WEBHOOK_SECRET_TOKEN_PARAM`, `FXSTREET_BEARER_TOKEN_PARAM`) and decrypted on startup.
+- Local/dev fallback still supports direct env vars (`WEBHOOK_SECRET_TOKEN`, `FXSTREET_BEARER_TOKEN`) when parameter names are not provided.
 
 ## Notes
 
@@ -137,7 +139,7 @@ Notes:
 - Real path vs test fallback: non-test requests use the real FXStreet API path; test mode exists as a verification fallback.
 - Function URL status: external webhook calls to Lambda Function URL are validated (`HTTP 200` in test mode).
 - Networking trade-off: current setup uses QuestDB public IP reachability for simplicity. Admin ports (`9000`, `22`) are now CIDR-restricted through `admin_allowed_cidrs`; ILP ingestion port (`9009`) remains publicly reachable for Lambda connectivity in this phase.
-- Secret handling trade-off: credentials are passed through Terraform variables into Lambda environment variables for simplicity. Production-hardening should move secrets to AWS Secrets Manager (or SSM SecureString retrieval in runtime) and remove plaintext handling from operator workflows.
+- Secret handling: Lambda loads credentials from SSM SecureString parameters at runtime instead of passing plaintext secret values into Lambda environment variables.
 
 ## Verification Results
 

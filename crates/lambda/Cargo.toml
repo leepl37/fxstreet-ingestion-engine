@@ -11,3 +11,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+aws-config = "0.55.3"
+aws-sdk-ssm = "0.28.0"

@@ -6,6 +6,13 @@ resource "aws_ssm_parameter" "webhook_secret" {
   value       = var.webhook_secret_token
 }
 
+resource "aws_ssm_parameter" "fxstreet_bearer_token" {
+  name        = "/${var.project_name}/${var.environment}/fxstreet_bearer_token"
+  description = "Bearer token for FXStreet Calendar API"
+  type        = "SecureString"
+  value       = var.fxstreet_bearer_token
+}
+
 # 2. IAM Role for Lambda
 data "aws_iam_policy_document" "lambda_assume_role" {
   statement {
@@ -31,8 +38,11 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
 # Give Lambda access to read SSM parameters (if needed by code dynamically)
 data "aws_iam_policy_document" "lambda_ssm" {
   statement {
-    actions   = ["ssm:GetParameter"]
-    resources = [aws_ssm_parameter.webhook_secret.arn]
+    actions = ["ssm:GetParameter"]
+    resources = [
+      aws_ssm_parameter.webhook_secret.arn,
+      aws_ssm_parameter.fxstreet_bearer_token.arn
+    ]
   }
 }
 
@@ -78,12 +88,12 @@ resource "aws_lambda_function" "webhook_lambda" {
 
   environment {
     variables = {
-      RUST_LOG              = "info"
-      FXSTREET_API_BASE     = "https://calendar-api.fxstreet.com/en/api/v1"
-      FXSTREET_BEARER_TOKEN = var.fxstreet_bearer_token
-      QUESTDB_HOST          = aws_instance.questdb.public_ip
-      QUESTDB_ILP_PORT      = "9009"
-      WEBHOOK_SECRET_TOKEN  = var.webhook_secret_token
+      RUST_LOG                    = "info"
+      FXSTREET_API_BASE           = "https://calendar-api.fxstreet.com/en/api/v1"
+      FXSTREET_BEARER_TOKEN_PARAM = aws_ssm_parameter.fxstreet_bearer_token.name
+      QUESTDB_HOST                = aws_instance.questdb.public_ip
+      QUESTDB_ILP_PORT            = "9009"
+      WEBHOOK_SECRET_TOKEN_PARAM  = aws_ssm_parameter.webhook_secret.name
     }
   }
 }
